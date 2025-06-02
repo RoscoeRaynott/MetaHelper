@@ -222,7 +222,7 @@ study_type = st.sidebar.selectbox(
     ["Clinical Trials", "Observational Studies", "All Study Types (PubMed only)"],
     index=0
 )
-max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
+max_results_per_source = st.sidebar.slider("Max results per source", 5, 50, 10)
 
 if NCBI_API_KEY: st.sidebar.success("NCBI API Key loaded.")
 else: st.sidebar.warning("NCBI API Key not loaded. Consider adding to secrets.")
