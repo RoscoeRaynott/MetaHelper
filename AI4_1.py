@@ -37,7 +37,6 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
     if population and population.strip(): search_stages_keywords.append(population.strip())
 
     if not search_stages_keywords:
-        # st.warning removed from here to be handled by caller if needed
         return [], "No search terms provided for PubMed."
 
     study_type_query_segment = ""
@@ -78,7 +77,6 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         else:
             esearch_params["term"] = current_stage_search_query
         
-        # UI info messages will be handled by the main app section
         try:
             response = requests.get(f"{base_url}esearch.fcgi", params=esearch_params, timeout=20)
             response.raise_for_status()
@@ -96,7 +94,7 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
             if hasattr(http_err, 'response') and http_err.response is not None and http_err.response.status_code == 429: 
                 error_message += " (Too Many Requests)"
             return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> {error_message}"
-        except Exception as e: # Catch other exceptions
+        except Exception as e:
             return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> Error at stage {i+1}: {str(e)}"
 
 
@@ -126,7 +124,6 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
             return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No article details)"
 
         for article_data in articles_list_xml:
-            # ... (parsing logic remains similar but we focus on specific return fields) ...
             if not isinstance(article_data, dict): continue
             medline_citation = article_data.get("MedlineCitation", {})
             if not medline_citation: continue 
@@ -152,23 +149,22 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
                         pmcid = aid.get("#text")
                         if pmcid: 
                             pmc_link_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
-                            is_rag_candidate = True # PMC links are strong RAG candidates
+                            is_rag_candidate = True
                             break
             
             pubmed_results_list.append({
                 "title": title, 
-                "link": pmc_link_url if is_rag_candidate else pubmed_link_url, # Prioritize PMC link
+                "link": pmc_link_url if is_rag_candidate else pubmed_link_url,
                 "is_rag_candidate": is_rag_candidate,
                 "source_type": "PubMed Central Article" if is_rag_candidate else "PubMed Abstract"
             })
         return pubmed_results_list, f"PubMed: {' -> '.join(processed_query_description_parts)} (Fetched {len(pubmed_results_list)} details)"
-    except Exception as e: # Catch general efetch errors
+    except Exception as e:
         return [], f"PubMed Fetch Details Error: {' -> '.join(processed_query_description_parts)} -> {str(e)}"
 
 
 def fetch_clinicaltrials_results(query, max_results=10):
-    if not query: return [] # Handled by caller if needed
-    # st.info removed for cleaner log by caller
+    if not query: return []
     base_url = "https://clinicaltrials.gov/api/v2/studies"
     params = { "query.term": query, "pageSize": str(max_results), "format": "json" }
     ct_results_list = []
@@ -177,14 +173,13 @@ def fetch_clinicaltrials_results(query, max_results=10):
         response.raise_for_status()
         data = response.json()
         studies = data.get("studies", [])
-        if not studies: return [] # Caller handles "no results found"
+        if not studies: return []
 
         for study_container in studies:
             study = study_container.get("protocolSection", {})
             if not study: continue
             identification_module = study.get("identificationModule", {})
             status_module = study.get("statusModule", {})
-            # description_module = study.get("descriptionModule", {}) # Not needed if not showing summary
             
             nct_id = identification_module.get("nctId", "N/A")
             title = identification_module.get("officialTitle") or identification_module.get("briefTitle", "No title available")
@@ -194,17 +189,24 @@ def fetch_clinicaltrials_results(query, max_results=10):
             ct_results_list.append({
                 "title": title, 
                 "link": link_url,
-                "nct_id": nct_id, # Good to have for reference
-                "is_rag_candidate": True, # Trial record page is HTML, generally RAG-readable
+                "nct_id": nct_id,
+                "is_rag_candidate": True,
                 "source_type": "Clinical Trial Record"
             })
-    except Exception as e: # Generic error catch for CT.gov
-        st.error(f"ClinicalTrials.gov API Error: {str(e)}") # Display error in main UI
-        return [] # Return empty list on error
+    except Exception as e:
+        st.error(f"ClinicalTrials.gov API Error: {str(e)}")
+        return []
     return ct_results_list
 
-# --- List of Other Databases --- (Same as before)
-OTHER_DATABASES = [ /* ... your list ... */ ]
+# --- List of Other Databases --- CORRECTED SECTION
+OTHER_DATABASES = [
+    {"name": "Europe PMC", "url": "https://europepmc.org/"},
+    {"name": "Lens.org", "url": "https://www.lens.org/"},
+    {"name": "Directory of Open Access Journals (DOAJ)", "url": "https://doaj.org/"},
+    {"name": "Google Scholar", "url": "https://scholar.google.com/"},
+    {"name": "medRxiv (Preprint Server)", "url": "https://www.medrxiv.org/"},
+    {"name": "bioRxiv (Preprint Server)", "url": "https://www.biorxiv.org/"}
+]
 
 # --- Streamlit App UI ---
 st.set_page_config(layout="wide")
@@ -222,20 +224,17 @@ study_type = st.sidebar.selectbox(
 )
 max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
 
-# API Key and Email status display
 if NCBI_API_KEY: st.sidebar.success("NCBI API Key loaded.")
 else: st.sidebar.warning("NCBI API Key not loaded. Consider adding to secrets.")
 if EMAIL_FOR_NCBI == "your_default_email@example.com" or not EMAIL_FOR_NCBI:
      st.sidebar.error("NCBI Email not set in secrets. Update .streamlit/secrets.toml")
-# else: st.sidebar.info(f"Email for NCBI: {EMAIL_FOR_NCBI}") # Can be verbose
 
 if st.sidebar.button("Search"):
     if not (disease or outcome_of_interest or target_population):
         st.error("Please fill in at least one of: Disease, Outcome, or Population.")
     else:
-        # --- PubMed Search ---
         st.header("PubMed / PubMed Central Results")
-        pubmed_status_message = st.empty() # Placeholder for status
+        pubmed_status_message = st.empty()
         with st.spinner(f"Performing sequential PubMed search..."):
             pubmed_status_message.info("Initializing PubMed search...")
             pubmed_results, pubmed_query_description = fetch_pubmed_results(
@@ -249,13 +248,12 @@ if st.sidebar.button("Search"):
                 if res.get("is_rag_candidate"):
                     st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
                 else:
-                    st.markdown(f"⚠️ [{res['title']}]({res['link']}) - *{res['source_type']}* (Access for RAG needs verification)")
+                    st.markdown(f"⚠️ [{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
                 st.divider()
         else:
             st.write("No results from PubMed based on the criteria or an error occurred during search.")
         st.markdown("---")
 
-        # --- ClinicalTrials.gov Search ---
         st.header("ClinicalTrials.gov Results")
         ct_status_message = st.empty()
         ct_api_query_string = construct_clinicaltrials_api_query(disease, outcome_of_interest, target_population, study_type)
@@ -268,7 +266,6 @@ if st.sidebar.button("Search"):
             if ct_results:
                 st.write(f"Found {len(ct_results)} Clinical Trial records:")
                 for res in ct_results:
-                    # All CT.gov records are considered RAG candidates (HTML readable)
                     st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})* (RAG-readable HTML record)")
                     st.divider()
             else:
@@ -282,15 +279,8 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.header("Other Free Medical Research Databases")
-# Make sure OTHER_DATABASES is defined
-OTHER_DATABASES = [
-    {"name": "Europe PMC", "url": "https://europepmc.org/"},
-    {"name": "Lens.org", "url": "https://www.lens.org/"},
-    {"name": "Directory of Open Access Journals (DOAJ)", "url": "https://doaj.org/"},
-    {"name": "Google Scholar", "url": "https://scholar.google.com/"},
-    {"name": "medRxiv (Preprint Server)", "url": "https://www.medrxiv.org/"},
-    {"name": "bioRxiv (Preprint Server)", "url": "https://www.biorxiv.org/"}
-]
-for db in OTHER_DATABASES: st.sidebar.markdown(f"[{db['name']}]({db['url']})")
+# This ensures the loop iterates over the correctly defined list
+for db in OTHER_DATABASES: 
+    st.sidebar.markdown(f"[{db['name']}]({db['url']})")
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Respect API terms of service.")
