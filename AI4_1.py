@@ -5,7 +5,7 @@ import json # For parsing ClinicalTrials.gov JSON
 
 # --- Configuration ---
 NCBI_API_KEY = None # Replace with your NCBI API key if you have one, otherwise None
-EMAIL_FOR_NCBI = "your_email@example.com" # !! IMPORTANT: Replace with your actual email for NCBI !!
+EMAIL_FOR_NCBI = "kohinoorrush@gmail.com" # !! IMPORTANT: Replace with your actual email for NCBI !!
 
 # --- Helper Functions for Query Construction ---
 def construct_pubmed_query(disease, outcome, population, study_type_selection):
