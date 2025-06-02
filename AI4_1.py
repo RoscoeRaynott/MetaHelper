@@ -2,47 +2,49 @@ import streamlit as st
 import requests
 import xmltodict # For parsing NCBI XML
 import json # For parsing ClinicalTrials.gov JSON
+import shlex # For safely splitting and quoting terms
 
 # --- Configuration ---
-NCBI_API_KEY = None # Replace with your NCBI API key if you have one, otherwise None
-EMAIL_FOR_NCBI = "kohinoorrush@gmail.com" # !! IMPORTANT: Replace with your actual email for NCBI !!
+NCBI_API_KEY = None # Replace with your NCBI API key if you have one
+EMAIL_FOR_NCBI = "your_email@example.com" # !! IMPORTANT: Replace with your actual email !!
 
 # --- Helper Functions for Query Construction ---
 def construct_pubmed_query(disease, outcome, population, study_type_selection):
     """
-    Constructs a simpler PubMed query string, similar to manual search.
-    Terms are generally ANDed. Study types can use OR for synonyms.
+    Constructs a very simple PubMed query string, by space-separating all terms.
+    Multi-word phrases from input are quoted. Study type keywords are added.
+    This mimics a more natural PubMed search bar query.
     """
-    main_terms_parts = []
-    if disease:
-        main_terms_parts.append(f'"{disease.strip()}"') # Quote to treat as a phrase
-    if outcome:
-        main_terms_parts.append(f'"{outcome.strip()}"')
-    if population:
-        main_terms_parts.append(f'"{population.strip()}"')
-    
-    # Join the main descriptive terms with AND
-    main_query_segment = " AND ".join(filter(None, main_terms_parts))
+    query_terms = []
 
-    study_type_segment = ""
+    def add_term_to_query(term_str):
+        if not term_str or not term_str.strip():
+            return
+        term_str = term_str.strip()
+        # If the term contains spaces, quote it to treat as a phrase
+        if ' ' in term_str:
+            query_terms.append(f'"{term_str}"')
+        else:
+            query_terms.append(term_str)
+
+    add_term_to_query(disease)
+    add_term_to_query(outcome)
+    add_term_to_query(population)
+    
     if study_type_selection == "Clinical Trials":
-        # Using phrases PubMed recognizes well for study types
-        study_type_segment = '("clinical trial" OR "randomized controlled trial")'
+        query_terms.append('"clinical trial"') # PubMed recognizes this phrase
+        query_terms.append('"randomized controlled trial"') # Also common
+        # query_terms.append('trial') # Could add simpler 'trial' if needed
     elif study_type_selection == "Observational Studies":
-        study_type_segment = '("observational study" OR "cohort study" OR "case-control study")'
+        query_terms.append('"observational study"')
+        query_terms.append('"cohort study"')
+        query_terms.append('"case-control study"')
     # If "All Study Types (PubMed only)", no specific study type keyword is added here.
 
-    # Combine main segment and study type segment
-    if main_query_segment and study_type_segment:
-        final_query = f"({main_query_segment}) AND ({study_type_segment})"
-    elif main_query_segment:
-        final_query = main_query_segment
-    elif study_type_segment: # Only study type selected (less common but possible)
-        final_query = study_type_segment
-    else:
-        return None # No terms provided to construct a query
+    if not query_terms:
+        return None 
 
-    return final_query
+    return " ".join(query_terms)
 
 
 def construct_clinicaltrials_api_query(disease, outcome, population, study_type_selection):
@@ -66,10 +68,8 @@ def construct_clinicaltrials_api_query(disease, outcome, population, study_type_
 # --- Functions for Fetching Results from APIs (fetch_pubmed_results and fetch_clinicaltrials_results) ---
 # These functions (fetch_pubmed_results, fetch_clinicaltrials_results)
 # remain IDENTICAL to the previous version.
-# The change is only in how the pubmed_query_string is *created*,
-# not in how it's used or how results are processed.
+# The change is only in how the pubmed_query_string is *created*.
 # For brevity, I will not repeat them here but assume you have them from the previous response.
-# Please ensure you copy them over from the previous version of main_app.py.
 
 def fetch_pubmed_results(query, max_results=10):
     if not query:
@@ -89,7 +89,7 @@ def fetch_pubmed_results(query, max_results=10):
     pubmed_results = []
     try:
         response = requests.get(f"{base_url}esearch.fcgi", params=esearch_params, timeout=15)
-        response.raise_for_status()
+        response.raise_for_status() # Will raise an HTTPError for bad responses (4XX or 5XX)
         esearch_data = response.json()
         
         id_list = esearch_data.get("esearchresult", {}).get("idlist", [])
@@ -115,26 +115,31 @@ def fetch_pubmed_results(query, max_results=10):
              return []
 
         articles_list = pubmed_articles_container.get("PubmedArticle", [])
-        if not isinstance(articles_list, list):
+        if not isinstance(articles_list, list): # If only one article, it's a dict, not list
             articles_list = [articles_list] if articles_list else []
 
-        if not articles_list:
+        if not articles_list: # Should not happen if id_list was populated, but good check
             st.warning("No article details found in PubMed response, though PMIDs were retrieved.")
             return []
 
         for article_data in articles_list:
             if not isinstance(article_data, dict): continue
             medline_citation = article_data.get("MedlineCitation", {})
-            if not medline_citation: continue
+            if not medline_citation: continue 
             article_info = medline_citation.get("Article", {})
             if not article_info: continue
 
             pmid_obj = medline_citation.get("PMID", {})
             pmid = pmid_obj.get("#text", "N/A") if isinstance(pmid_obj, dict) else pmid_obj if isinstance(pmid_obj, str) else "N/A"
             
-            title = article_info.get("ArticleTitle", "No title available")
-            if isinstance(title, dict): title = title.get("#text", "No title available")
-            elif not isinstance(title, str): title = str(title) # Ensure title is string
+            title_obj = article_info.get("ArticleTitle", "No title available")
+            if isinstance(title_obj, dict): 
+                title = title_obj.get("#text", "No title available")
+            elif isinstance(title_obj, list): # Handle cases where ArticleTitle might be a list of segments
+                title = "".join(str(t.get("#text", t)) if isinstance(t, dict) else str(t) for t in title_obj)
+            else: # String or other
+                title = str(title_obj)
+
 
             abstract_text_parts = []
             abstract_section = article_info.get("Abstract", {})
@@ -175,14 +180,21 @@ def fetch_pubmed_results(query, max_results=10):
             if pmc_link: result_item["pmc_link"] = pmc_link
             pubmed_results.append(result_item)
 
+    except requests.exceptions.HTTPError as http_err: # Specifically catch HTTP errors
+        st.error(f"HTTP error occurred while fetching from PubMed: {http_err} - URL: {http_err.request.url}")
+        if http_err.response.status_code == 429:
+            st.error("This is a 'Too Many Requests' error. Please wait a few minutes and try again, or use an NCBI API key.")
+        # You could inspect http_err.response.text for more details from NCBI
     except requests.exceptions.Timeout:
         st.error("PubMed request timed out. The server might be busy or your connection unstable.")
-    except requests.exceptions.RequestException as e:
+    except requests.exceptions.RequestException as e: # Other network errors
         st.error(f"Error fetching from PubMed: {e}")
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError as e: # For esearch if response is not valid JSON
         st.error(f"Error decoding PubMed JSON response: {e}")
-    except Exception as e:
+    except Exception as e: # Catch-all for other errors, like xmltodict parsing
         st.error(f"An unexpected error occurred with PubMed processing: {e}")
+        # st.error(f"Problematic XML content snippet: {summary_response.text[:500] if 'summary_response' in locals() and hasattr(summary_response, 'text') else 'N/A'}")
+
     return pubmed_results
 
 def fetch_clinicaltrials_results(query, max_results=10):
@@ -228,6 +240,8 @@ def fetch_clinicaltrials_results(query, max_results=10):
                 "status": status, "summary": summary, "source": "ClinicalTrials.gov"
             })
             
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"HTTP error occurred while fetching from ClinicalTrials.gov: {http_err}")
     except requests.exceptions.Timeout:
         st.error("ClinicalTrials.gov request timed out.")
     except requests.exceptions.RequestException as e:
@@ -249,10 +263,6 @@ OTHER_DATABASES = [
 ]
 
 # --- Streamlit App UI (This also remains IDENTICAL to the previous version) ---
-# For brevity, I will not repeat the UI code here.
-# Please ensure you copy the UI section (from st.set_page_config onwards)
-# from the previous version of main_app.py.
-
 st.set_page_config(layout="wide")
 st.title("Medical Research Paper & Trial Finder")
 st.markdown("""
@@ -274,7 +284,7 @@ max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
 
 
 if st.sidebar.button("Search"):
-    if not (disease or outcome_of_interest or target_population): # Ensure at least one core field is filled
+    if not (disease or outcome_of_interest or target_population):
         st.error("Please fill in at least one of: Disease, Outcome, or Population.")
     else:
         # --- PubMed Search ---
@@ -282,8 +292,8 @@ if st.sidebar.button("Search"):
         pubmed_query_string = construct_pubmed_query(disease, outcome_of_interest, target_population, study_type)
         
         if pubmed_query_string:
-            st.write("**PubMed Query:**")
-            st.code(pubmed_query_string, language="text") # Display the generated query
+            st.write("**PubMed Query (Simplified for broad search):**")
+            st.code(pubmed_query_string, language="text")
             with st.spinner(f"Searching PubMed for up to {max_results_per_source} results..."):
                 pubmed_results = fetch_pubmed_results(pubmed_query_string, max_results_per_source)
             
@@ -301,7 +311,6 @@ if st.sidebar.button("Search"):
                         st.markdown(f"**Access:**")
                         st.markdown(f"[{res['access']}]({res['link']})")
                     st.divider()
-            # Warnings for no results are now handled within fetch_pubmed_results
         else:
             st.warning("Could not construct a valid PubMed query from the inputs. Please provide at least one search term.")
         st.markdown("---")
@@ -327,7 +336,6 @@ if st.sidebar.button("Search"):
                     st.caption(f"NCT ID: {res['nct_id']} | Status: {res['status']}")
                     st.write(f"_{res.get('summary', 'No summary available.')}_")
                     st.divider()
-            # Warnings for no results are now handled within fetch_clinicaltrials_results
         else:
             st.warning("Could not construct a valid ClinicalTrials.gov query from the inputs. Please provide at least one search term.")
         
