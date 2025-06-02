@@ -17,7 +17,6 @@ except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 # --- Helper Function for ClinicalTrials.gov Query ---
 def construct_clinicaltrials_api_query(disease, outcome, population, study_type_selection):
     terms = []
-    # Disease, outcome, population terms are used raw (just stripped)
     if disease: terms.append(disease.strip())
     if outcome: terms.append(outcome.strip())
     if population: terms.append(population.strip())
@@ -33,20 +32,14 @@ def construct_clinicaltrials_api_query(disease, outcome, population, study_type_
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
     search_stages_keywords = []
-    # IMPORTANT: Disease, outcome, population terms are taken as raw input (stripped)
-    # NO programmatic quotes are added around these terms by this function.
-    if disease and disease.strip():
-        search_stages_keywords.append(disease.strip())
-    if outcome and outcome.strip():
-        search_stages_keywords.append(outcome.strip())
-    if population and population.strip():
-        search_stages_keywords.append(population.strip())
+    if disease and disease.strip(): search_stages_keywords.append(disease.strip())
+    if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
+    if population and population.strip(): search_stages_keywords.append(population.strip())
 
     if not search_stages_keywords:
         st.warning("No primary search terms (disease, outcome, population) provided for PubMed.")
         return [], "No search terms provided."
 
-    # Study type segment *does* use quotes and field tags for precision
     study_type_query_segment = ""
     if study_type_selection == "Clinical Trials":
         study_type_query_segment = '("clinical trial"[Publication Type] OR "randomized controlled trial"[Publication Type])'
@@ -60,18 +53,14 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
     processed_query_description = []
 
     for i, keyword_stage_term in enumerate(search_stages_keywords):
-        # keyword_stage_term IS THE RAW, UNQUOTED USER INPUT (e.g., Type 2 Diabetes)
-        
         current_stage_search_query = ""
         if study_type_query_segment:
-            # keyword_stage_term is NOT put in extra quotes here.
-            # The study_type_query_segment itself contains necessary quotes for its phrases.
             current_stage_search_query = f"{keyword_stage_term} AND ({study_type_query_segment})"
         else:
-            current_stage_search_query = keyword_stage_term # Just the raw keyword
-
-        description_keyword_display = keyword_stage_term # For display
-        processed_query_description.append(f"Step {i+1} Term: '{description_keyword_display}'") # Single quotes for display only
+            current_stage_search_query = keyword_stage_term
+        
+        description_keyword_display = keyword_stage_term
+        processed_query_description.append(f"Step {i+1} Term: '{description_keyword_display}'")
         if i == 0 and study_type_query_segment:
              processed_query_description.append(f"Applied Study Filter: {study_type_selection}")
 
@@ -84,14 +73,12 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         if NCBI_API_KEY: esearch_params["api_key"] = NCBI_API_KEY
 
         if current_webenv and current_query_key:
-            # The current_stage_search_query is NOT enclosed in extra parentheses here.
             esearch_params["term"] = f"#{current_query_key} AND {current_stage_search_query}"
             esearch_params["WebEnv"] = current_webenv
         else:
             esearch_params["term"] = current_stage_search_query
         
         st.info(f"PubMed Search - Stage {i+1}: Processing with '{description_keyword_display}'")
-        # (rest of the try-except block for esearch is the same as the previous version)
         try:
             response = requests.get(f"{base_url}esearch.fcgi", params=esearch_params, timeout=20)
             response.raise_for_status()
@@ -106,15 +93,22 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
             if not current_webenv or not current_query_key:
                 st.error("Error in PubMed search: Could not retrieve WebEnv/QueryKey for sequential search.")
                 return [], " -> ".join(processed_query_description) + " (Error in history)"
-        except requests.exceptions.HTTPError as http_err: # ... error handling
+        except requests.exceptions.HTTPError as http_err:
             st.error(f"HTTP error occurred while fetching from PubMed: {http_err} - URL: {http_err.request.url}")
-            if http_err.response.status_code == 429: st.error("This is a 'Too Many Requests' error...")
+            if http_err.response.status_code == 429: st.error("This is a 'Too Many Requests' error. Please wait a few minutes and try again, or use an NCBI API key.")
             return [], " -> ".join(processed_query_description) + f" (HTTP Error)"
-        # ... other exceptions ...
+        except requests.exceptions.Timeout:
+            st.error("PubMed request timed out.")
+            return [], " -> ".join(processed_query_description) + " (Timeout)"
+        except requests.exceptions.RequestException as e:
+            st.error(f"Error fetching from PubMed: {e}")
+            return [], " -> ".join(processed_query_description) + " (Request Error)"
+        except json.JSONDecodeError as e:
+            st.error(f"Error decoding PubMed JSON response: {e}")
+            return [], " -> ".join(processed_query_description) + " (JSON Error)"
         except Exception as e:
             st.error(f"An unexpected error occurred with PubMed stage search: {e}")
             return [], " -> ".join(processed_query_description) + f" (Unexpected Error)"
-
 
     if not final_id_list:
         st.warning("No PMIDs remained after all sequential PubMed search stages.")
@@ -134,7 +128,6 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         summary_response = requests.get(f"{base_url}efetch.fcgi", params=efetch_params, timeout=25)
         summary_response.raise_for_status()
         articles_dict = xmltodict.parse(summary_response.content)
-        # (efetch parsing logic is the same as previous version)
         pubmed_articles_container = articles_dict.get("PubmedArticleSet", {})
         if not pubmed_articles_container:
              st.warning("PubMed efetch response structure unexpected (No PubmedArticleSet).")
@@ -183,19 +176,86 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
             if pmc_link: result_item["pmc_link"] = pmc_link
             pubmed_results_list.append(result_item)
         return pubmed_results_list, " -> ".join(processed_query_description)
-    except Exception as e: # General efetch error
+    except requests.exceptions.HTTPError as http_err:
+        st.error(f"HTTP error during PubMed efetch: {http_err}")
+        return [], " -> ".join(processed_query_description) + " (HTTP Error in efetch)"
+    except requests.exceptions.Timeout:
+        st.error("PubMed efetch request timed out.")
+        return [], " -> ".join(processed_query_description) + " (Timeout in efetch)"
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error during PubMed efetch: {e}")
+        return [], " -> ".join(processed_query_description) + " (Request Error in efetch)"
+    except json.JSONDecodeError as e: # Though efetch uses XML, if something weird happens
+        st.error(f"Error decoding PubMed efetch (unexpected JSON error): {e}")
+        return [], " -> ".join(processed_query_description) + " (JSON Error in efetch)"
+    except Exception as e:
         st.error(f"Unexpected error during PubMed efetch processing: {e}")
         return [], " -> ".join(processed_query_description) + " (Efetch processing error)"
 
+# THIS IS THE FUNCTION THAT WAS LIKELY MISSING/INCOMPLETE
+def fetch_clinicaltrials_results(query, max_results=10):
+    if not query:
+        st.warning("ClinicalTrials.gov query is empty. Please provide search terms.")
+        return []
+    st.info(f"Searching ClinicalTrials.gov with query: {query}")
+    base_url = "https://clinicaltrials.gov/api/v2/studies"
+    params = { "query.term": query, "pageSize": str(max_results), "format": "json" }
+    ct_results = []
+    try:
+        response = requests.get(base_url, params=params, timeout=15)
+        response.raise_for_status() # Raises HTTPError for bad requests (4XX or 5XX)
+        data = response.json()
+        studies = data.get("studies", [])
+        if not studies:
+            st.warning("No clinical trials found for the query. Try broadening your search terms.")
+            return []
+        for study_container in studies:
+            study = study_container.get("protocolSection", {})
+            if not study: continue # Should not happen with valid API response
+            identification_module = study.get("identificationModule", {})
+            status_module = study.get("statusModule", {})
+            description_module = study.get("descriptionModule", {})
+            
+            nct_id = identification_module.get("nctId", "N/A")
+            title = identification_module.get("officialTitle") or identification_module.get("briefTitle", "No title available")
 
-# --- List of Other Databases --- (Same as before)
+            status = status_module.get("overallStatus", "N/A")
+            summary = description_module.get("briefSummary", "")
+            if not summary and description_module.get("detailedDescription"): # Fallback to detailed description
+                summary = description_module.get("detailedDescription")[:300] + "..."
+            if not summary: summary = "No summary available." # Ensure summary is not None
+
+            link = f"https://clinicaltrials.gov/study/{nct_id}" if nct_id != "N/A" else "#"
+            
+            ct_results.append({
+                "title": title, "link": link, "nct_id": nct_id,
+                "status": status, "summary": summary, "source": "ClinicalTrials.gov"
+            })
+    # Corrected 'except' block that was mentioned in the traceback
+    except requests.exceptions.HTTPError as http_err:                   
+        st.error(f"HTTP error occurred while fetching from ClinicalTrials.gov: {http_err}")
+    except requests.exceptions.Timeout:                                 
+        st.error("ClinicalTrials.gov request timed out.")               
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error fetching from ClinicalTrials.gov: {e}")
+    except json.JSONDecodeError as e:
+        st.error(f"Error decoding ClinicalTrials.gov JSON response: {e}")
+    except Exception as e: # Catch other unexpected errors
+        st.error(f"An unexpected error occurred with ClinicalTrials.gov: {e}")
+    return ct_results
+
+
+# --- List of Other Databases ---
 OTHER_DATABASES = [
     {"name": "Europe PMC", "url": "https://europepmc.org/"},
     {"name": "Lens.org", "url": "https://www.lens.org/"},
-    # ... other databases
+    {"name": "Directory of Open Access Journals (DOAJ)", "url": "https://doaj.org/"},
+    {"name": "Google Scholar", "url": "https://scholar.google.com/"},
+    {"name": "medRxiv (Preprint Server)", "url": "https://www.medrxiv.org/"},
+    {"name": "bioRxiv (Preprint Server)", "url": "https://www.biorxiv.org/"}
 ]
 
-# --- Streamlit App UI --- (Same as previous, except for PubMed query display)
+# --- Streamlit App UI ---
 st.set_page_config(layout="wide")
 st.title("Medical Research Paper & Trial Finder")
 st.markdown("Sequential PubMed search: Terms (Disease, Outcome, Population) are applied one by one, **without added quotes around them**. Study type filter applied at each step.")
@@ -211,7 +271,6 @@ study_type = st.sidebar.selectbox(
 )
 max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
 
-# Sidebar messages for API key and email
 if NCBI_API_KEY: st.sidebar.success("NCBI API Key loaded.")
 else: st.sidebar.warning("NCBI API Key not loaded. Using lower rate limits.")
 if EMAIL_FOR_NCBI == "your_default_email@example.com" or not EMAIL_FOR_NCBI:
@@ -229,13 +288,10 @@ if st.sidebar.button("Search"):
             )
         
         st.write("**PubMed Search Strategy Performed:**")
-        # This displays how the search was built, term by term.
-        # The terms shown here ('keyword') are the raw user input.
         st.info(pubmed_query_description if pubmed_query_description else "No PubMed search performed or terms provided.")
             
         if pubmed_results:
             st.write(f"Found {len(pubmed_results)} results from PubMed/PMC after sequential filtering:")
-            # (PubMed results display logic is the same)
             for res in pubmed_results:
                 col1, col2 = st.columns([3,1])
                 with col1:
@@ -249,17 +305,16 @@ if st.sidebar.button("Search"):
                 st.divider()
         st.markdown("---")
 
-        # ClinicalTrials.gov Search (remains the same)
         st.header("ClinicalTrials.gov Results")
         ct_api_query_string = construct_clinicaltrials_api_query(disease, outcome_of_interest, target_population, study_type)
         if ct_api_query_string:
             st.write("**ClinicalTrials.gov API Query (Keywords):**")
-            st.code(ct_api_query_string, language="text") # This is already raw space-separated keywords
+            st.code(ct_api_query_string, language="text")
             with st.spinner(f"Searching ClinicalTrials.gov..."):
+                # This is the call to fetch_clinicaltrials_results
                 ct_results = fetch_clinicaltrials_results(ct_api_query_string, max_results_per_source)
             if ct_results:
                 st.write(f"Found {len(ct_results)} results from ClinicalTrials.gov:")
-                # (CT.gov results display logic is the same)
                 for res in ct_results:
                     st.markdown(f"**[{res['title']}]({res['link']})**")
                     st.caption(f"NCT ID: {res['nct_id']} | Status: {res['status']}")
@@ -271,9 +326,8 @@ if st.sidebar.button("Search"):
 else:
     st.info("Enter search parameters in the sidebar and click 'Search'.")
 
-# Other databases list (Same as before)
 st.sidebar.markdown("---")
 st.sidebar.header("Other Free Medical Research Databases")
-# ...
+for db in OTHER_DATABASES: st.sidebar.markdown(f"[{db['name']}]({db['url']})")
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Remember to respect API terms of service.")
