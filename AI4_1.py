@@ -1,12 +1,28 @@
 import streamlit as st
 import requests
-import xmltodict # For parsing NCBI XML
-import json # For parsing ClinicalTrials.gov JSON
-import shlex # For safely splitting and quoting terms
+import xmltodict
+import json
+import shlex # Not strictly needed for the simplified query, but good to have if you revert
 
 # --- Configuration ---
-NCBI_API_KEY = None # Replace with your NCBI API key if you have one
-EMAIL_FOR_NCBI = "your_email@example.com" # !! IMPORTANT: Replace with your actual email !!
+# Attempt to get NCBI_API_KEY from Streamlit secrets
+try:
+    NCBI_API_KEY = st.secrets.get("NCBI_API_KEY")
+    if not NCBI_API_KEY: # Handles if key exists but is empty
+        NCBI_API_KEY = None
+        st.sidebar.warning("NCBI_API_KEY not found or empty in Streamlit secrets. Using default rate limits.")
+except Exception: # Handles if st.secrets itself or the key doesn't exist (e.g. local run without secrets file)
+    NCBI_API_KEY = None
+    st.sidebar.warning("Streamlit secrets not found or NCBI_API_KEY missing. Using default rate limits.")
+
+# Get email from secrets or use a default/placeholder
+try:
+    EMAIL_FOR_NCBI = st.secrets.get("EMAIL_FOR_NCBI", "your_default_email@example.com") # Provide a default
+    if not EMAIL_FOR_NCBI or EMAIL_FOR_NCBI == "your_default_email@example.com":
+        st.sidebar.error("IMPORTANT: Please set your EMAIL_FOR_NCBI in Streamlit secrets for NCBI API usage.")
+except Exception:
+    EMAIL_FOR_NCBI = "your_default_email@example.com" # Fallback
+    st.sidebar.error("IMPORTANT: Please set your EMAIL_FOR_NCBI in Streamlit secrets for NCBI API usage.")
 
 # --- Helper Functions for Query Construction ---
 def construct_pubmed_query(disease, outcome, population, study_type_selection):
