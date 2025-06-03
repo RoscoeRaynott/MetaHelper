@@ -200,8 +200,9 @@ def fetch_clinicaltrials_results( # Original function name kept
     disease_input,
     outcome_input,
     population_input,
-    min_age=None,
-    max_age=None,
+    std_age=None
+    #min_age=None,
+    #max_age=None,
     location_country=None,
     gender=None,
     masking_type=None,      # For POST-FETCH filter
@@ -216,7 +217,7 @@ def fetch_clinicaltrials_results( # Original function name kept
 
     # 1. Construct the single query.term string using the internal helper
     query_term_string = _construct_clinicaltrials_query_term_string( # Calling the helper
-        disease_input, outcome_input, min_age, max_age, location_country, gender
+        disease_input, outcome_input, std_age, location_country, gender
     )
 
     if not query_term_string:
