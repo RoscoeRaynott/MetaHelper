@@ -30,7 +30,7 @@ def construct_clinicaltrials_api_query(disease, outcome, population, study_type_
 
 
 # --- Functions for Fetching Results from APIs ---
-def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
+def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=200):
     search_stages_keywords = []
     if disease and disease.strip(): search_stages_keywords.append(disease.strip())
     if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
@@ -163,7 +163,7 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         return [], f"PubMed Fetch Details Error: {' -> '.join(processed_query_description_parts)} -> {str(e)}"
 
 
-def fetch_clinicaltrials_results(query, max_results=10):
+def fetch_clinicaltrials_results(query, max_results=200):
     if not query: return []
     base_url = "https://clinicaltrials.gov/api/v2/studies"
     params = { "query.term": query, "pageSize": str(max_results), "format": "json" }
