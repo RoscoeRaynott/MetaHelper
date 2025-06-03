@@ -227,8 +227,7 @@ def fetch_clinicaltrials_results(
             params["query.patient.gender"] = gender_adv.upper()
     
     if location_country_adv and location_country_adv.strip() and location_country_adv != "Any":
-        params["query.location.country"] = location_country_adv.strip()
-
+        params["filter.geo"] = f"country:{location_country_adv.strip()}"
 
     st.info(f"ClinicalTrials.gov API Request Params: {json.dumps(params, indent=2)}")
 
