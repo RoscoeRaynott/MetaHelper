@@ -31,7 +31,7 @@ def _construct_clinicaltrials_query_term_string( # Renamed to indicate it's an i
     query_parts = []
 
     # --- Fixed Filters (part of the query.term string) ---
-    query_parts.append("STUDY_TYPE[Interventional]")
+    query_parts.append("STUDY_TYPE[INTERVENTIONAL]")
     query_parts.append("OVERALL_STATUS[COMPLETED]")
 
     # --- Main User Keyword Inputs (mapped to specific fields if possible) ---
