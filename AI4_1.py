@@ -56,11 +56,11 @@ def construct_clinicaltrials_api_query(
         # Let's stick to ELIGIBILITY_CRITERIA for now for more predictability.
 
     # --- Advanced Filters ---
-    if min_age: 
-        query_parts.append(f"MIN_AGE[{min_age} YEARS]")
+    if min_age is not None: # Check for None explicitly as 0 is a valid age
+        query_parts.append(f"MIN_AGE[{min_age}]") # Using just the number
     
-    if max_age:
-        query_parts.append(f"MAX_AGE[{max_age} YEARS]")
+    if max_age is not None:
+        query_parts.append(f"MAX_AGE[{max_age}]") # Using just the number
         
     if location_country and location_country.strip() and location_country != "Any":
         query_parts.append(f"LOCATION_COUNTRY[{location_country.strip()}]")
