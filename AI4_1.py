@@ -15,54 +15,62 @@ except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
 
 # --- Helper Function for ClinicalTrials.gov Query ---
-def construct_clinicaltrials_api_query(disease_input, outcome_input, population_input, study_type_selection_ignored):
+def construct_clinicaltrials_api_query(
+    disease_input, 
+    outcome_input, 
+    population_input, 
+    # study_type_selection_ignored - this parameter can be removed if fixed for CT.gov
+    min_age=None,
+    max_age=None,
+    location_country=None,
+    gender=None,
+    masking_type=None,
+    intervention_model=None
+):
     """
-    Constructs a targeted ClinicalTrials.gov API query with fixed parameters:
-    - Study Type: Interventional
-    - Status: Completed
-    - Uses user inputs for Disease (as CONDITION) and Outcome (as OUTCOME_MEASURE).
-    - Population input is still included as a general search term for now.
+    Constructs a targeted ClinicalTrials.gov API query with fixed parameters
+    (Study Type: Interventional, Status: Completed) and optional advanced filters.
     """
     query_parts = []
 
-    # 1. Disease (as CONDITION)
-    if disease_input and disease_input.strip():
-        # Using AREA to search the Condition field for the disease phrase
-        query_parts.append(f"CONDITION[{disease_input.strip()}]")
-    else:
-        # If no disease is provided, this query might be too broad or less meaningful.
-        # Depending on requirements, you might want to make 'disease' mandatory for this specific query.
-        # For now, we'll allow it but it might lead to many irrelevant "completed interventional trials".
-        pass
-
-    # 2. Outcome Measure (as OUTCOME_MEASURE)
-    if outcome_input and outcome_input.strip():
-        # Using AREA to search the OutcomeMeasure field for the outcome phrase
-        query_parts.append(f"OUTCOME_MEASURE[{outcome_input.strip()}]")
-    else:
-        # Similar to disease, an outcome is crucial for context.
-        pass
-
-    # 3. Status: Fixed to COMPLETED
+    # --- Fixed Parameters ---
+    query_parts.append("STUDY_TYPE[Interventional]")
     query_parts.append("OVERALL_STATUS[COMPLETED]")
 
-    # 4. Study Type: Fixed to Interventional
-    query_parts.append("STUDY_TYPE[Interventional]")
+    # --- User Inputs (Mapped to Specific Fields) ---
+    if disease_input and disease_input.strip():
+        query_parts.append(f"CONDITION[{disease_input.strip()}]")
     
-    # 5. Population (as a general search term, within title, summary, conditions, keywords, eligibility)
-    #    This allows for more flexible searching of population characteristics.
+    if outcome_input and outcome_input.strip():
+        query_parts.append(f"OUTCOME_MEASURE[{outcome_input.strip()}]")
+
+    # Population input remains a general search term for flexibility
     if population_input and population_input.strip():
-        # AREA is used to specify where to search for these general terms.
-        # OfficialTitle, BriefTitle, BriefSummary, DetailedDescription, Condition, Keyword, EligibilityCriteria
-        # are good places to look for population descriptors.
         query_parts.append(f"AREA[OverallOfficialOrBriefTitleBriefSummaryDetailedDescriptionConditionKeywordEligibilityCriteria]Search[{population_input.strip()}]")
 
-    if not query_parts:
-        return None # Should not happen if status and study type are fixed.
+    # --- Advanced Filters ---
+    if min_age: # Assuming min_age is an integer
+        query_parts.append(f"MIN_AGE[{min_age} YEARS]") # API expects unit
     
-    # All parts are combined with AND
+    if max_age: # Assuming max_age is an integer
+        query_parts.append(f"MAX_AGE[{max_age} YEARS]") # API expects unit
+        
+    if location_country and location_country.strip() and location_country != "Any":
+        query_parts.append(f"LOCATION_COUNTRY[{location_country.strip()}]")
+        
+    if gender and gender != "Any": # Assuming 'Any' is the default option
+        query_parts.append(f"GENDER[{gender}]") # API values: All, Female, Male
+        
+    if masking_type and masking_type != "Any": # e.g., "Double", "Single", "None"
+        query_parts.append(f"MASKING[{masking_type}]")
+        
+    if intervention_model and intervention_model != "Any": # e.g., "Single Group Assignment", "Parallel Assignment"
+        query_parts.append(f"INTERVENTION_MODEL[{intervention_model.strip()}]")
+
+    if not query_parts: # Should ideally not happen given fixed params
+        return None 
+    
     final_query = " AND ".join(query_parts)
-    
     return final_query
 
 
@@ -272,6 +280,34 @@ study_type = st.sidebar.selectbox(
 )
 max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
 
+st.sidebar.markdown("---") # Separator
+with st.sidebar.expander("Advanced ClinicalTrials.gov Filters", expanded=False):
+    ct_min_age = st.number_input("Minimum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
+    ct_max_age = st.number_input("Maximum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
+    
+    # For country, a long dropdown isn't ideal. Text input is better.
+    # User needs to know country names as API expects them.
+    # Or, provide a curated list of common countries.
+    country_options = ["Any", "United States", "Canada", "United Kingdom", "Germany", "France", "China", "India", "Japan", "Australia"] # Example
+    ct_location_country = st.selectbox("Location Country", options=country_options, index=0)
+    # Alternatively, for more flexibility:
+    # ct_location_country_text = st.text_input("Location Country (e.g., United States)", placeholder="Any")
+
+
+    ct_gender_options = ["Any", "All", "Female", "Male"] # "All" is official CT.gov term for both if specified
+    ct_gender = st.selectbox("Gender", options=ct_gender_options, index=0)
+    
+    # Masking types from ClinicalTrials.gov API documentation or common usage
+    ct_masking_options = ["Any", "None", "Single", "Double", "Triple", "Quadruple"] 
+    ct_masking = st.selectbox("Masking", options=ct_masking_options, index=0)
+    
+    # Intervention Models from ClinicalTrials.gov
+    ct_intervention_model_options = [
+        "Any", "Single Group Assignment", "Parallel Assignment", 
+        "Crossover Assignment", "Factorial Assignment", "Sequential Assignment"
+    ]
+    ct_intervention_model = st.selectbox("Intervention Model", options=ct_intervention_model_options, index=0)
+
 if NCBI_API_KEY: st.sidebar.success("NCBI API Key loaded.")
 else: st.sidebar.warning("NCBI API Key not loaded. Consider adding to secrets.")
 if EMAIL_FOR_NCBI == "your_default_email@example.com" or not EMAIL_FOR_NCBI:
@@ -304,10 +340,34 @@ if st.sidebar.button("Search"):
 
         st.header("ClinicalTrials.gov Results")
         ct_status_message = st.empty()
-        ct_api_query_string = construct_clinicaltrials_api_query(disease, outcome_of_interest, target_population, study_type)
+        
+        # The 'study_type' from the sidebar is now fully ignored by the CT.gov function,
+        # as "Interventional" is fixed within construct_clinicaltrials_api_query.
+        # Population input for ct_location_country_text would be:
+        # location_country_to_pass = ct_location_country_text if ct_location_country_text else None
+        # For the selectbox version:
+        location_country_to_pass = ct_location_country if ct_location_country != "Any" else None
+        
+        min_age_to_pass = ct_min_age if ct_min_age is not None else None # Handle placeholder for number_input
+        max_age_to_pass = ct_max_age if ct_max_age is not None else None
+
+
+        ct_api_query_string = construct_clinicaltrials_api_query(
+            disease_input=disease,                 # from main sidebar input
+            outcome_input=outcome_of_interest,     # from main sidebar input
+            population_input=target_population,    # from main sidebar input
+            min_age=min_age_to_pass,
+            max_age=max_age_to_pass,
+            location_country=location_country_to_pass,
+            gender=ct_gender if ct_gender != "Any" else None,
+            masking_type=ct_masking if ct_masking != "Any" else None,
+            intervention_model=ct_intervention_model if ct_intervention_model != "Any" else None
+        )
         
         if ct_api_query_string:
-            ct_status_message.info(f"Searching ClinicalTrials.gov for trials with results available using terms: {ct_api_query_string}")
+            ct_status_message.info(f"Searching ClinicalTrials.gov with specified parameters...")
+            st.write("**ClinicalTrials.gov API Query (Structured):**")
+            st.code(ct_api_query_string, language="text")
             with st.spinner(f"Searching ClinicalTrials.gov..."):
                 ct_results = fetch_clinicaltrials_results(ct_api_query_string, max_results_per_source)
             
