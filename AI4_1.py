@@ -208,7 +208,12 @@ def fetch_clinicaltrials_results(
     
     # Advanced Filters from user input
     if std_age_adv and std_age_adv != "Any":
-        age_filter = f"AREA[Age]{std_age_adv.upper()}"
+        if std_age_adv == "CHILD":
+            age_filter = "AREA[MinimumAge]RANGE[MIN, 17 years] AND AREA[MaximumAge]RANGE[MIN, 17 years]"
+        elif std_age_adv == "ADULT":
+            age_filter = "AREA[MinimumAge]RANGE[18 years, 64 years] AND AREA[MaximumAge]RANGE[18 years, 64 years]"
+        elif std_age_adv == "OLDER_ADULT":
+            age_filter = "AREA[MinimumAge]RANGE[65 years, MAX]"
         if "filter.advanced" in params:
             params["filter.advanced"] += f" AND {age_filter}"
         else:
