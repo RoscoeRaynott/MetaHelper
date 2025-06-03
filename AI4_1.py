@@ -31,6 +31,7 @@ def construct_clinicaltrials_api_query(disease, outcome, population, study_type_
 
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
+    # ... (fetch_pubmed_results function remains the same as the previous corrected version)
     search_stages_keywords = []
     if disease and disease.strip(): search_stages_keywords.append(disease.strip())
     if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
@@ -175,36 +176,40 @@ def fetch_clinicaltrials_results(query, max_results=10):
         studies = data.get("studies", [])
         if not studies: return []
 
-        for study_container in studies: # study_container is the actual 'study' object from API
-            # Check for the 'hasResults' flag at the top level of the study_container
-            if not study_container.get("hasResults", False): # Default to False if key is missing
-                continue # Skip this trial if hasResults is not true
-
-            # If hasResults is true, proceed to extract other details
-            protocol_section = study_container.get("protocolSection", {})
-            if not protocol_section: continue # Should ideally always be there if hasResults is true
+        # START OF MODIFIED FILTERING LOGIC FOR ClinicalTrials.gov
+        for study_container in studies: 
+            # MODIFIED FILTER: Check for the presence and non-emptiness of 'resultsSection'
+            results_section = study_container.get("resultsSection")
+            if not results_section: # If 'resultsSection' key is missing or its value is None/empty
+                continue # Skip this trial
+            
+            # If results_section exists, proceed to extract other details
+            protocol_section = study_container.get("protocolSection", {}) 
+            if not protocol_section: continue 
 
             identification_module = protocol_section.get("identificationModule", {})
             status_module = protocol_section.get("statusModule", {})
             
             nct_id = identification_module.get("nctId", "N/A")
             title = identification_module.get("officialTitle") or identification_module.get("briefTitle", "No title available")
-            status = status_module.get("overallStatus", "N/A") # Overall status of the trial
+            overall_status = status_module.get("overallStatus", "N/A") # Get overallStatus from statusModule
             link_url = f"https://clinicaltrials.gov/study/{nct_id}" if nct_id != "N/A" else "#"
             
             ct_results_list.append({
                 "title": title, 
                 "link": link_url,
                 "nct_id": nct_id,
-                "is_rag_candidate": True, # Trial record page is HTML, RAG-readable
-                "source_type": "Clinical Trial Record (Results Posted)" # Updated source_type
+                "is_rag_candidate": True, 
+                "source_type": "Clinical Trial Record (Results Available)" # Updated source_type slightly
             })
+        # END OF MODIFIED FILTERING LOGIC
+            
     except Exception as e:
         st.error(f"ClinicalTrials.gov API Error: {str(e)}")
         return []
     return ct_results_list
 
-# --- List of Other Databases --- CORRECTED SECTION
+# --- List of Other Databases ---
 OTHER_DATABASES = [
     {"name": "Europe PMC", "url": "https://europepmc.org/"},
     {"name": "Lens.org", "url": "https://www.lens.org/"},
@@ -217,7 +222,7 @@ OTHER_DATABASES = [
 # --- Streamlit App UI ---
 st.set_page_config(layout="wide")
 st.title("RAG-Ready Medical Research Finder")
-st.markdown("Finds **PubMed Central articles** and **Clinical Trial records** suitable for RAG pipelines.")
+st.markdown("Finds **PubMed Central articles** and **Clinical Trial records (with results available)** suitable for RAG pipelines.")
 
 st.sidebar.header("Search Parameters")
 target_population = st.sidebar.text_input("Target Population", placeholder="e.g., elderly patients with diabetes")
@@ -228,7 +233,7 @@ study_type = st.sidebar.selectbox(
     ["Clinical Trials", "Observational Studies", "All Study Types (PubMed only)"],
     index=0
 )
-max_results_per_source = st.sidebar.slider("Max results per source", 5, 50, 10)
+max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
 
 if NCBI_API_KEY: st.sidebar.success("NCBI API Key loaded.")
 else: st.sidebar.warning("NCBI API Key not loaded. Consider adding to secrets.")
@@ -265,17 +270,17 @@ if st.sidebar.button("Search"):
         ct_api_query_string = construct_clinicaltrials_api_query(disease, outcome_of_interest, target_population, study_type)
         
         if ct_api_query_string:
-            ct_status_message.info(f"Searching ClinicalTrials.gov with terms: {ct_api_query_string}")
+            ct_status_message.info(f"Searching ClinicalTrials.gov for trials with results available using terms: {ct_api_query_string}")
             with st.spinner(f"Searching ClinicalTrials.gov..."):
                 ct_results = fetch_clinicaltrials_results(ct_api_query_string, max_results_per_source)
             
             if ct_results:
-                st.write(f"Found {len(ct_results)} Clinical Trial records **with results posted**:") # Minor text update
+                st.write(f"Found {len(ct_results)} Clinical Trial records **with results available**:") 
                 for res in ct_results:
-                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})*") # source_type now includes "(Results Posted)"
+                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})*") 
                     st.divider()
             else:
-                ct_status_message.info(f"No Clinical Trial records found **with results posted** for terms: {ct_api_query_string}") # Minor text update
+                ct_status_message.info(f"No Clinical Trial records found **with results available** for terms: {ct_api_query_string}")
         else: 
             ct_status_message.warning("Could not construct a ClinicalTrials.gov query from inputs.")
         st.markdown("---")
@@ -285,7 +290,6 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.header("Other Free Medical Research Databases")
-# This ensures the loop iterates over the correctly defined list
 for db in OTHER_DATABASES: 
     st.sidebar.markdown(f"[{db['name']}]({db['url']})")
 st.sidebar.markdown("---")
