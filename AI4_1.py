@@ -163,39 +163,89 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         return [], f"PubMed Fetch Details Error: {' -> '.join(processed_query_description_parts)} -> {str(e)}"
 
 
-def fetch_clinicaltrials_results(query, max_results=200):
-    if not query: return []
+def fetch_clinicaltrials_results(query, max_results=200): # query is the string from construct_clinicaltrials_api_query
+    if not query: 
+        st.warning("ClinicalTrials.gov query string is empty.") # Added warning
+        return []
+
     base_url = "https://clinicaltrials.gov/api/v2/studies"
-    params = { "query.term": query, "pageSize": str(max_results), "format": "json" }
+    
+    # Define statuses that mean "no longer looking for participants"
+    # You can adjust this list based on your exact needs.
+    # 'COMPLETED' is the primary one you mentioned.
+    no_longer_recruiting_statuses = [
+        "COMPLETED", 
+        #"TERMINATED", 
+        #"WITHDRAWN", 
+        #"ACTIVE_NOT_RECRUITING",
+        #"SUSPENDED" # Optional: if suspended means not looking *now*
+    ]
+
+    params = {
+        "query.term": query,  # Your existing keywords (disease, outcome, population, study_type)
+        "query.overallStatus": ",".join(no_longer_recruiting_statuses), # Filter by these statuses
+        "pageSize": str(max_results),
+        "format": "json"
+    }
+
+    # For debugging, let's see the exact params being sent
+    st.info(f"ClinicalTrials.gov API Request Params: {json.dumps(params, indent=2)}")
+
     ct_results_list = []
     try:
-        response = requests.get(base_url, params=params, timeout=15)
+        response = requests.get(base_url, params=params, timeout=20) # Increased timeout
+        st.info(f"ClinicalTrials.gov API Request URL: {response.url}") # Log the exact URL
         response.raise_for_status()
         data = response.json()
         studies = data.get("studies", [])
-        if not studies: return []
+        
+        st.info(f"ClinicalTrials.gov API returned {len(studies)} studies.") # Debug how many are returned by API
+
+        if not studies: 
+            return []
 
         for study_container in studies:
-            study = study_container.get("protocolSection", {})
-            if not study: continue
-            identification_module = study.get("identificationModule", {})
-            status_module = study.get("statusModule", {})
+            # No need for post-fetch status filter if API handles it, but good to have for display
+            protocol_section = study_container.get("protocolSection", {})
+            if not protocol_section: continue # Should not happen with valid API response
+
+            identification_module = protocol_section.get("identificationModule", {})
+            status_module = protocol_section.get("statusModule", {}) # For displaying status if needed
             
             nct_id = identification_module.get("nctId", "N/A")
             title = identification_module.get("officialTitle") or identification_module.get("briefTitle", "No title available")
-            status = status_module.get("overallStatus", "N/A")
+            # overall_status_from_api = status_module.get("overallStatus", "N/A") # For display
             link_url = f"https://clinicaltrials.gov/study/{nct_id}" if nct_id != "N/A" else "#"
             
+            # Your requirement is to only include these, which the API filter should handle.
+            # We can add an explicit check for the `resultsSection` if that's still desired for RAG.
+            if not study_container.get("resultsSection"): # If you only want trials with results posted
+                 st.write(f"Skipping {nct_id} - no results section.") # Debug
+                 continue
+
             ct_results_list.append({
                 "title": title, 
                 "link": link_url,
                 "nct_id": nct_id,
-                "is_rag_candidate": True,
-                "source_type": "Clinical Trial Record"
+                "is_rag_candidate": True, # HTML record is RAG-readable
+                "source_type": "Clinical Trial Record" # Can add status_from_api if needed
             })
-    except Exception as e:
-        st.error(f"ClinicalTrials.gov API Error: {str(e)}")
+            if len(ct_results_list) >= max_results: # Ensure we don't exceed max_results
+                break
+
+    except requests.exceptions.HTTPError as http_err:
+        error_detail = f" (URL: {http_err.request.url if http_err.request else 'N/A'})"
+        if http_err.response is not None:
+             error_detail += f" - Response Code: {http_err.response.status_code} - Detail: {http_err.response.text[:1000]}"
+        else:
+            error_detail += " - No response object."
+        st.error(f"ClinicalTrials.gov API Error: HTTP Error {error_detail}")
         return []
+    except Exception as e:
+        st.error(f"ClinicalTrials.gov API Error (Other): {str(e)}")
+        return []
+    
+    st.info(f"Returning {len(ct_results_list)} Clinical Trial results after all processing.") # Debug
     return ct_results_list
 
 # --- List of Other Databases --- CORRECTED SECTION
