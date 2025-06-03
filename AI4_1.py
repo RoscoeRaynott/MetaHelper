@@ -200,7 +200,7 @@ def fetch_clinicaltrials_results( # Original function name kept
     disease_input,
     outcome_input,
     population_input,
-    std_age=None
+    std_age=None,
     #min_age=None,
     #max_age=None,
     location_country=None,
