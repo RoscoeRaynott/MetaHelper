@@ -15,18 +15,55 @@ except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
 
 # --- Helper Function for ClinicalTrials.gov Query ---
-def construct_clinicaltrials_api_query(disease, outcome, population, study_type_selection):
-    terms = []
-    if disease: terms.append(disease.strip())
-    if outcome: terms.append(outcome.strip())
-    if population: terms.append(population.strip())
-    study_type_term = ""
-    if study_type_selection == "Clinical Trials": study_type_term = "Interventional"
-    elif study_type_selection == "Observational Studies": study_type_term = "Observational"
-    if study_type_term: terms.append(study_type_term)
-    valid_terms = [term for term in terms if term]
-    if not valid_terms: return None
-    return " ".join(valid_terms)
+def construct_clinicaltrials_api_query(disease_input, outcome_input, population_input, study_type_selection_ignored):
+    """
+    Constructs a targeted ClinicalTrials.gov API query with fixed parameters:
+    - Study Type: Interventional
+    - Status: Completed
+    - Uses user inputs for Disease (as CONDITION) and Outcome (as OUTCOME_MEASURE).
+    - Population input is still included as a general search term for now.
+    """
+    query_parts = []
+
+    # 1. Disease (as CONDITION)
+    if disease_input and disease_input.strip():
+        # Using AREA to search the Condition field for the disease phrase
+        query_parts.append(f"CONDITION[{disease_input.strip()}]")
+    else:
+        # If no disease is provided, this query might be too broad or less meaningful.
+        # Depending on requirements, you might want to make 'disease' mandatory for this specific query.
+        # For now, we'll allow it but it might lead to many irrelevant "completed interventional trials".
+        pass
+
+    # 2. Outcome Measure (as OUTCOME_MEASURE)
+    if outcome_input and outcome_input.strip():
+        # Using AREA to search the OutcomeMeasure field for the outcome phrase
+        query_parts.append(f"OUTCOME_MEASURE[{outcome_input.strip()}]")
+    else:
+        # Similar to disease, an outcome is crucial for context.
+        pass
+
+    # 3. Status: Fixed to COMPLETED
+    query_parts.append("OVERALL_STATUS[COMPLETED]")
+
+    # 4. Study Type: Fixed to Interventional
+    query_parts.append("STUDY_TYPE[Interventional]")
+    
+    # 5. Population (as a general search term, within title, summary, conditions, keywords, eligibility)
+    #    This allows for more flexible searching of population characteristics.
+    if population_input and population_input.strip():
+        # AREA is used to specify where to search for these general terms.
+        # OfficialTitle, BriefTitle, BriefSummary, DetailedDescription, Condition, Keyword, EligibilityCriteria
+        # are good places to look for population descriptors.
+        query_parts.append(f"AREA[OverallOfficialOrBriefTitleBriefSummaryDetailedDescriptionConditionKeywordEligibilityCriteria]Search[{population_input.strip()}]")
+
+    if not query_parts:
+        return None # Should not happen if status and study type are fixed.
+    
+    # All parts are combined with AND
+    final_query = " AND ".join(query_parts)
+    
+    return final_query
 
 
 # --- Functions for Fetching Results from APIs ---
