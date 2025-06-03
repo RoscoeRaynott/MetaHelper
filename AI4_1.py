@@ -197,15 +197,18 @@ def fetch_clinicaltrials_results(
     max_results=10
 ):
     """
-    Fetches results from ClinicalTrials.gov API v2 with correct parameters.
+    Fetches results from ClinicalTrials.gov API v2 by embedding “Interventional” and
+    “Completed” into query.cond (instead of using query.studyType/query.overallStatus).
+    We'll do any stricter filtering (masking/interventionModel) after retrieving the JSON.
     """
-    # If none of the three main terms are provided, return empty.
+
+    # If none of the three main terms (disease/outcome/population) are provided, return empty.
     if not (disease_input or outcome_input or population_input):
         return []
-    
+
     base_url = "https://clinicaltrials.gov/api/v2/studies"
-    
-    # Build the simple free‐text part (we’ll send that in query.condition or query.term)
+
+    # Build the simple free‐text part (disease/outcome/population)
     query_parts = []
     if disease_input and disease_input.strip():
         query_parts.append(disease_input.strip())
@@ -213,107 +216,84 @@ def fetch_clinicaltrials_results(
         query_parts.append(outcome_input.strip())
     if population_input and population_input.strip():
         query_parts.append(population_input.strip())
-    
-    # ClinicalTrials.gov v2 parameters:
+
+    # According to v2 docs, we send everything (including “Interventional” & “Completed”)
+    # into “query.cond” as a space‐separated string:
     params = {
         "format": "json",
         "pageSize": str(max_results),
-        # Always filter for interventional & completed (if you only want those)
-        "query.studyType": "Interventional",
-        "query.overallStatus": "Completed"
+        "query.cond": " ".join(query_parts + ["Interventional", "Completed"]),
     }
-    
-    # If we have any free‐text terms (disease/outcome/population), send them as query.condition
-    # (or as query.term). The docs say “query.condition” can hold disease names, etc.
-    if query_parts:
-        # You can also use “query.condition” specifically for disease, 
-        # but putting everything in query.term also works. Let’s use query.condition here:
-        params["query.condition"] = " AND ".join(query_parts)
-    
-    # Add age filters if provided
+
+    # Add age filters if provided (these are still valid v2 parameters)
     if min_age is not None:
         params["query.eligibility.minimumAge"] = str(min_age)
     if max_age is not None:
         params["query.eligibility.maximumAge"] = str(max_age)
-    
+
     # Add location filter if provided
     if location_country and location_country.strip() and location_country != "Any":
         params["query.location.country"] = location_country.strip()
-    
+
     # Add gender filter if provided
     if gender and gender != "Any":
-        # v2 uses “ALL”, “FEMALE”, “MALE”
-        if gender == "All":
-            params["query.eligibility.gender"] = "ALL"
-        else:
-            params["query.eligibility.gender"] = gender.upper()
-    
-    # v2 Does NOT have direct “maskingType” or “interventionModel” keys, 
-    # but you can often supply them under “query.design.*”. Example:
-    if masking_type and masking_type != "Any":
-        # The v2 docs specify “query.design.maskingInfo.masking” or similar
-        # (double‐check the exact field name if needed). In many v2 calls it’s:
-        #   query.design.maskingInfo.masking=“None”  or “Single” / “Double”, etc.
-        params["query.design.maskingInfo.masking"] = masking_type
-    
-    if intervention_model and intervention_model != "Any":
-        # v2 expects “query.design.designInfo.allocation” but for “intervention model”
-        # the path is “query.design.designInfo.interventionModel” (check docs).
-        params["query.design.designInfo.interventionModel"] = intervention_model
-    
+        params["query.eligibility.gender"] = "ALL" if gender == "All" else gender.upper()
+
     try:
         response = requests.get(base_url, params=params, timeout=15)
         response.raise_for_status()
         data = response.json()
-        
+
         studies = data.get("studies", [])
         if not studies:
             return []
-        
+
         ct_results_list = []
-        for study_container in studies:
-            # v2 returns a “protocolSection” and “resultsSection” structure.
-            results_section = study_container.get("resultsSection")
-            if not results_section:
-                # Skip any trial that has no results available
+        for study in studies:
+            # Only include trials that have resultsSection
+            if not study.get("resultsSection"):
                 continue
-            
-            protocol_section = study_container.get("protocolSection", {})
-            identification_module = protocol_section.get("identificationModule", {})
-            status_module = protocol_section.get("statusModule", {})
-            
-            nct_id = identification_module.get("nctId", "N/A")
+
+            protocol = study.get("protocolSection", {})
+            id_mod = protocol.get("identificationModule", {})
+            status_mod = protocol.get("statusModule", {})
+
+            nct_id = id_mod.get("nctId", "N/A")
             title = (
-                identification_module.get("officialTitle")
-                or identification_module.get("briefTitle", "No title available")
+                id_mod.get("officialTitle")
+                or id_mod.get("briefTitle", "No title available")
             )
-            overall_status = status_module.get("overallStatus", "N/A")
+            # We already requested “Completed” in query.cond, but double-check:
+            overall_status = status_mod.get("overallStatus", "")
+            if "Completed".lower() not in overall_status.lower():
+                continue
+
             link_url = (
                 f"https://clinicaltrials.gov/study/{nct_id}"
                 if nct_id != "N/A"
                 else "#"
             )
-            
-            # v2: filter by masking if requested
-            design_module = protocol_section.get("designModule", {})
+
+            # Now apply the v2 “masking” filter if requested:
+            design_module = protocol.get("designModule", {})
             if masking_type and masking_type != "Any":
                 masking_info = design_module.get("maskingInfo", {})
                 masking = masking_info.get("masking", "")
                 if masking_type.lower() == "none" and masking.upper() != "NONE":
                     continue
-                elif (
+                if (
                     masking_type.lower() != "none"
                     and masking_type.upper() not in masking.upper()
                 ):
                     continue
-            
-            # v2: filter by interventionModel if requested
+
+            # Apply “interventionModel” filter if requested
             if intervention_model and intervention_model != "Any":
                 design_info = design_module.get("designInfo", {})
                 intervention = design_info.get("interventionModel", "")
                 if intervention_model.lower() not in intervention.lower():
                     continue
-            
+
             ct_results_list.append(
                 {
                     "title": title,
@@ -323,11 +303,13 @@ def fetch_clinicaltrials_results(
                     "source_type": "Clinical Trial Record (Results Available)",
                 }
             )
-        
+
         return ct_results_list
-    
+
     except requests.exceptions.HTTPError as http_err:
-        st.error(f"ClinicalTrials.gov API Error: HTTP {http_err.response.status_code} - {http_err.response.text}")
+        st.error(
+            f"ClinicalTrials.gov API Error: HTTP {http_err.response.status_code} - {http_err.response.text}"
+        )
         return []
     except Exception as e:
         st.error(f"ClinicalTrials.gov API Error: {str(e)}")
