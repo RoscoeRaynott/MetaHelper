@@ -17,10 +17,8 @@ except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 # --- Helper function to construct the query.term string for ClinicalTrials.gov ---
 def _construct_clinicaltrials_query_term_string( # Renamed to indicate it's an internal helper
     disease_input, 
-    outcome_input, 
-    population_input, 
-    min_age=None,
-    max_age=None,
+    outcome_input,  
+    std_age=None,
     location_country=None,
     gender=None
 ):
@@ -41,15 +39,14 @@ def _construct_clinicaltrials_query_term_string( # Renamed to indicate it's an i
     if outcome_input and outcome_input.strip():
         query_parts.append(f'OUTCOME_MEASURE["{outcome_input.strip()}"]')
 
-    if population_input and population_input.strip():
-        query_parts.append(f'ELIGIBILITY_CRITERIA["{population_input.strip()}"]')
-
     # --- Advanced Filters (part of the query.term string) ---
-    if min_age is not None:
-        query_parts.append(f"MIN_AGE[{int(min_age)}]") 
+    if std_age and std_age != "Any":
+        query_parts.append(f"STDAGE[{std_age}]") 
+    #if min_age is not None:
+    #    query_parts.append(f"MIN_AGE[{int(min_age)}]") 
     
-    if max_age is not None:
-        query_parts.append(f"MAX_AGE[{int(max_age)}]")
+    #if max_age is not None:
+    #    query_parts.append(f"MAX_AGE[{int(max_age)}]")
         
     if location_country and location_country.strip() and location_country != "Any":
         query_parts.append(f'LOCATION_COUNTRY["{location_country.strip()}"]')
@@ -219,8 +216,7 @@ def fetch_clinicaltrials_results( # Original function name kept
 
     # 1. Construct the single query.term string using the internal helper
     query_term_string = _construct_clinicaltrials_query_term_string( # Calling the helper
-        disease_input, outcome_input, population_input,
-        min_age, max_age, location_country, gender
+        disease_input, outcome_input, min_age, max_age, location_country, gender
     )
 
     if not query_term_string:
@@ -366,8 +362,10 @@ max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
 
 st.sidebar.markdown("---")
 with st.sidebar.expander("Advanced ClinicalTrials.gov Filters", expanded=False):
-    ct_min_age = st.number_input("Minimum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
-    ct_max_age = st.number_input("Maximum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
+    #ct_min_age = st.number_input("Minimum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
+    #ct_max_age = st.number_input("Maximum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
+    ct_std_Age_options=["Any", "CHILD","ADULT","OLDER_ADULT"]
+    ct_std_Age=st.selectbox("StandardAge", options=ct_std_Age_options, index=0)
     
     country_options = ["Any", "United States", "Canada", "United Kingdom", "Germany", "France", "China", "India", "Japan", "Australia"] # Example
     ct_location_country = st.selectbox("Location Country", options=country_options, index=0)
@@ -421,8 +419,9 @@ if st.sidebar.button("Search"):
         ct_status_message = st.empty()
         
         location_country_to_pass = ct_location_country if ct_location_country != "Any" else None
-        min_age_to_pass = ct_min_age if ct_min_age is not None else None
-        max_age_to_pass = ct_max_age if ct_max_age is not None else None
+        std_Age_to_pass = ct_std_Age if ct_std_Age != "Any" else None 
+        #min_age_to_pass = ct_min_age if ct_min_age is not None else None
+        #max_age_to_pass = ct_max_age if ct_max_age is not None else None
         gender_to_pass = ct_gender if ct_gender != "Any" else None
         masking_to_pass = ct_masking if ct_masking != "Any" else None
         intervention_model_to_pass = ct_intervention_model if ct_intervention_model != "Any" else None
@@ -434,8 +433,9 @@ if st.sidebar.button("Search"):
                 disease_input=disease,
                 outcome_input=outcome_of_interest,
                 population_input=target_population,
-                min_age=min_age_to_pass,
-                max_age=max_age_to_pass,
+                #min_age=min_age_to_pass,
+                #max_age=max_age_to_pass,
+                std_age=std_Age_to_pass,
                 location_country=location_country_to_pass,
                 gender=gender_to_pass,
                 masking_type=masking_to_pass,
