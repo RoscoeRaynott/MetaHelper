@@ -14,57 +14,23 @@ try:
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
 
-# --- Helper function to construct the query.term string for ClinicalTrials.gov ---
-def _construct_clinicaltrials_query_term_string( # Renamed to indicate it's an internal helper
-    disease_input, 
-    outcome_input,  
-    std_age=None,
-    location_country=None,
-    gender=None
-):
-    """
-    Constructs the 'query.term' string for ClinicalTrials.gov API v2,
-    including fixed filters (Interventional, Completed) and advanced filters.
-    """
-    query_parts = []
-
-    # --- Fixed Filters (part of the query.term string) ---
-    query_parts.append("STUDY_TYPE[INTERVENTIONAL]")
-    query_parts.append("OVERALL_STATUS[COMPLETED]")
-
-    # --- Main User Keyword Inputs (mapped to specific fields if possible) ---
-    if disease_input and disease_input.strip():
-        query_parts.append(f'CONDITION["{disease_input.strip()}"]')
-    
-    if outcome_input and outcome_input.strip():
-        query_parts.append(f'OUTCOME_MEASURE["{outcome_input.strip()}"]')
-
-    # --- Advanced Filters (part of the query.term string) ---
-    if std_age and std_age != "Any":
-        query_parts.append(f"STD_AGE[{std_age.strip()}]") 
-    #if min_age is not None:
-    #    query_parts.append(f"MIN_AGE[{int(min_age)}]") 
-    
-    #if max_age is not None:
-    #    query_parts.append(f"MAX_AGE[{int(max_age)}]")
-        
-    if location_country and location_country.strip() and location_country != "Any":
-        query_parts.append(f'LOCATION_COUNTRY["{location_country.strip()}"]')
-        
-    if gender and gender != "Any": 
-        query_parts.append(f"GENDER[{gender.upper()}]")
-
-    if not query_parts:
-        # This should ideally not be hit if fixed filters are always present
-        return "STUDY_TYPE[Interventional] AND OVERALL_STATUS[COMPLETED]" # Fallback to fixed filters
-
-    final_query_term = " AND ".join(query_parts)
-    return final_query_term
+# --- Helper Function for ClinicalTrials.gov Query ---
+def construct_clinicaltrials_api_query(disease, outcome, population, study_type_selection):
+    terms = []
+    if disease: terms.append(disease.strip())
+    if outcome: terms.append(outcome.strip())
+    if population: terms.append(population.strip())
+    study_type_term = ""
+    if study_type_selection == "Clinical Trials": study_type_term = "Interventional"
+    elif study_type_selection == "Observational Studies": study_type_term = "Observational"
+    if study_type_term: terms.append(study_type_term)
+    valid_terms = [term for term in terms if term]
+    if not valid_terms: return None
+    return " ".join(valid_terms)
 
 
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
-    # This function remains unchanged from your last working version for PubMed
     search_stages_keywords = []
     if disease and disease.strip(): search_stages_keywords.append(disease.strip())
     if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
@@ -131,6 +97,7 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         except Exception as e:
             return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> Error at stage {i+1}: {str(e)}"
 
+
     if not final_id_list:
         return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (No results after all stages)"
 
@@ -196,144 +163,42 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         return [], f"PubMed Fetch Details Error: {' -> '.join(processed_query_description_parts)} -> {str(e)}"
 
 
-def fetch_clinicaltrials_results( # Original function name kept
-    disease_input,
-    outcome_input,
-    std_age=None,
-    #min_age=None,
-    #max_age=None,
-    location_country=None,
-    gender=None,
-    masking_type=None,      # For POST-FETCH filter
-    intervention_model=None,# For POST-FETCH filter
-    max_results=10
-):
-    """
-    Fetches results from ClinicalTrials.gov API v2.
-    Uses an internal helper to build the query.term string for API-side filtering.
-    Masking and Intervention Model are filtered post-fetch.
-    """
-
-    # 1. Construct the single query.term string using the internal helper
-    query_term_string = _construct_clinicaltrials_query_term_string( # Calling the helper
-        disease_input, outcome_input, std_age, location_country, gender
-    )
-
-    if not query_term_string:
-        st.warning("Could not construct a valid query term for ClinicalTrials.gov.")
-        return [] # Return empty list, not tuple
-
+def fetch_clinicaltrials_results(query, max_results=10):
+    if not query: return []
     base_url = "https://clinicaltrials.gov/api/v2/studies"
-    
-    params = {
-        "query.term": query_term_string, # The comprehensive query string
-        "format": "json",
-        "pageSize": str(max_results * 2), # Fetch more for post-filtering leeway (e.g., *2 or *3)
-    }
-
-    st.info(f"ClinicalTrials.gov API Request Params: {json.dumps(params, indent=2)}")
-
+    params = { "query.term": query, "pageSize": str(max_results), "format": "json" }
     ct_results_list = []
     try:
-        response = requests.get(base_url, params=params, timeout=25)
-        st.info(f"ClinicalTrials.gov API Request URL: {response.url}")
+        response = requests.get(base_url, params=params, timeout=15)
         response.raise_for_status()
         data = response.json()
-        studies_from_api = data.get("studies", [])
-        
-        st.info(f"API returned {len(studies_from_api)} studies before post-filtering for Masking/Intervention Model/Results.")
-        
-        if not studies_from_api:
-            return []
+        studies = data.get("studies", [])
+        if not studies: return []
 
-        # Counters for debugging post-fetch filtering
-        count_initial_from_api = len(studies_from_api)
-        count_after_results_filter = 0
-        # We will count how many pass each subsequent filter based on the previous count
-
-        temp_list_after_results = []
-        for study_container in studies_from_api:
-            if study_container.get("resultsSection"):
-                temp_list_after_results.append(study_container)
-        count_after_results_filter = len(temp_list_after_results)
-        st.info(f"Studies after 'resultsSection' filter: {count_after_results_filter} (out of {count_initial_from_api})")
-        if not temp_list_after_results: return []
-
-
-        temp_list_after_masking = []
-        for study_container in temp_list_after_results:
-            protocol_section = study_container.get("protocolSection", {})
-            design_module = protocol_section.get("designModule", {})
-            passes_masking_filter = True
-            if masking_type and masking_type != "Any":
-                masking_info = design_module.get("maskingInfo", {})
-                masking_from_api = masking_info.get("masking", "").upper()
-                selected_masking_normalized = masking_type.upper()
-                if selected_masking_normalized == "NONE":
-                    if not (masking_from_api == "NONE" or "OPEN" in masking_from_api):
-                        passes_masking_filter = False
-                elif selected_masking_normalized not in masking_from_api:
-                    passes_masking_filter = False
-            if passes_masking_filter:
-                temp_list_after_masking.append(study_container)
-        st.info(f"Studies after 'masking' filter: {len(temp_list_after_masking)} (out of {count_after_results_filter})")
-        if not temp_list_after_masking: return []
-
-
-        temp_list_after_intervention = []
-        for study_container in temp_list_after_masking:
-            protocol_section = study_container.get("protocolSection", {}) # Already checked, but good for clarity
-            design_module = protocol_section.get("designModule", {}) # Already checked
-            passes_intervention_filter = True
-            if intervention_model and intervention_model != "Any":
-                study_design_info = design_module.get("designInfo", {})
-                intervention_model_from_api = study_design_info.get("interventionModel", "").upper()
-                selected_intervention_model_normalized = intervention_model.upper().replace(" ASSIGNMENT", "")
-                if selected_intervention_model_normalized not in intervention_model_from_api:
-                    passes_intervention_filter = False
-            if passes_intervention_filter:
-                temp_list_after_intervention.append(study_container)
-        st.info(f"Final studies after 'intervention model' filter: {len(temp_list_after_intervention)}")
-        if not temp_list_after_intervention: return []
-
-
-        # Now, process the final filtered list
-        for study_container in temp_list_after_intervention:
-            protocol_section = study_container.get("protocolSection", {})
-            identification_module = protocol_section.get("identificationModule", {})
+        for study_container in studies:
+            study = study_container.get("protocolSection", {})
+            if not study: continue
+            identification_module = study.get("identificationModule", {})
+            status_module = study.get("statusModule", {})
+            
             nct_id = identification_module.get("nctId", "N/A")
-            title = (
-                identification_module.get("officialTitle")
-                or identification_module.get("briefTitle", "No title available")
-            )
+            title = identification_module.get("officialTitle") or identification_module.get("briefTitle", "No title available")
+            status = status_module.get("overallStatus", "N/A")
             link_url = f"https://clinicaltrials.gov/study/{nct_id}" if nct_id != "N/A" else "#"
             
             ct_results_list.append({
                 "title": title, 
                 "link": link_url,
                 "nct_id": nct_id,
-                "is_rag_candidate": True, 
-                "source_type": "Clinical Trial Record (Results Available)"
+                "is_rag_candidate": True,
+                "source_type": "Clinical Trial Record"
             })
-            if len(ct_results_list) >= max_results: # Ensure we don't exceed max_results
-                break
-            
-    except requests.exceptions.HTTPError as http_err:
-        error_detail = f" (URL: {http_err.request.url if http_err.request else 'N/A'})"
-        if http_err.response is not None:
-             error_detail += f" - Response Code: {http_err.response.status_code} - Detail: {http_err.response.text[:1000]}"
-        else:
-            error_detail += " - No response object."
-        st.error(f"ClinicalTrials.gov API Error: HTTP Error {error_detail}")
-        return [] # Return empty list on error
     except Exception as e:
-        st.error(f"ClinicalTrials.gov API Error (Other): {str(e)}")
-        return [] # Return empty list on error
-    
-    return ct_results_list # Already capped by the loop or will be implicitly by pageSize
+        st.error(f"ClinicalTrials.gov API Error: {str(e)}")
+        return []
+    return ct_results_list
 
-
-# --- List of Other Databases ---
+# --- List of Other Databases --- CORRECTED SECTION
 OTHER_DATABASES = [
     {"name": "Europe PMC", "url": "https://europepmc.org/"},
     {"name": "Lens.org", "url": "https://www.lens.org/"},
@@ -346,7 +211,7 @@ OTHER_DATABASES = [
 # --- Streamlit App UI ---
 st.set_page_config(layout="wide")
 st.title("RAG-Ready Medical Research Finder")
-st.markdown("Finds **PubMed Central articles** and **Clinical Trial records (with results available)** suitable for RAG pipelines.")
+st.markdown("Finds **PubMed Central articles** and **Clinical Trial records** suitable for RAG pipelines.")
 
 st.sidebar.header("Search Parameters")
 target_population = st.sidebar.text_input("Target Population", placeholder="e.g., elderly patients with diabetes")
@@ -356,43 +221,18 @@ study_type = st.sidebar.selectbox(
     "Study Type",
     ["Clinical Trials", "Observational Studies", "All Study Types (PubMed only)"],
     index=0
-) # This is used by PubMed search
-
-max_results_per_source = st.sidebar.slider("Max results per source", 5, 25, 10)
-
-st.sidebar.markdown("---")
-with st.sidebar.expander("Advanced ClinicalTrials.gov Filters", expanded=False):
-    #ct_min_age = st.number_input("Minimum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
-    #ct_max_age = st.number_input("Maximum Age (Years)", min_value=0, max_value=120, value=None, step=1, placeholder="Any")
-    ct_std_Age_options=["Any", "CHILD","ADULT","OLDER_ADULT"]
-    ct_std_Age=st.selectbox("StandardAge", options=ct_std_Age_options, index=0)
-    
-    country_options = ["Any", "United States", "Canada", "United Kingdom", "Germany", "France", "China", "India", "Japan", "Australia"] # Example
-    ct_location_country = st.selectbox("Location Country", options=country_options, index=0)
-
-    ct_gender_options = ["Any", "All", "Female", "Male"]
-    ct_gender = st.selectbox("Gender", options=ct_gender_options, index=0)
-    
-    ct_masking_options = ["Any", "None", "Single", "Double", "Triple", "Quadruple"] 
-    ct_masking = st.selectbox("Masking", options=ct_masking_options, index=0)
-    
-    ct_intervention_model_options = [
-        "Any", "Single Group Assignment", "Parallel Assignment", 
-        "Crossover Assignment", "Factorial Assignment", "Sequential Assignment"
-    ]
-    ct_intervention_model = st.selectbox("Intervention Model", options=ct_intervention_model_options, index=0)
+)
+max_results_per_source = st.sidebar.slider("Max results per source", 5, 50, 10)
 
 if NCBI_API_KEY: st.sidebar.success("NCBI API Key loaded.")
 else: st.sidebar.warning("NCBI API Key not loaded. Consider adding to secrets.")
 if EMAIL_FOR_NCBI == "your_default_email@example.com" or not EMAIL_FOR_NCBI:
      st.sidebar.error("NCBI Email not set in secrets. Update .streamlit/secrets.toml")
-# else: st.sidebar.info(f"Email for NCBI: {EMAIL_FOR_NCBI}") # Optional
 
 if st.sidebar.button("Search"):
     if not (disease or outcome_of_interest or target_population):
         st.error("Please fill in at least one of: Disease, Outcome, or Population.")
     else:
-        # --- PubMed Search ---
         st.header("PubMed / PubMed Central Results")
         pubmed_status_message = st.empty()
         with st.spinner(f"Performing sequential PubMed search..."):
@@ -414,43 +254,24 @@ if st.sidebar.button("Search"):
             st.write("No results from PubMed based on the criteria or an error occurred during search.")
         st.markdown("---")
 
-        # --- ClinicalTrials.gov Search ---
         st.header("ClinicalTrials.gov Results")
         ct_status_message = st.empty()
+        ct_api_query_string = construct_clinicaltrials_api_query(disease, outcome_of_interest, target_population, study_type)
         
-        location_country_to_pass = ct_location_country if ct_location_country != "Any" else None
-        std_Age_to_pass = ct_std_Age if ct_std_Age != "Any" else None 
-        #min_age_to_pass = ct_min_age if ct_min_age is not None else None
-        #max_age_to_pass = ct_max_age if ct_max_age is not None else None
-        gender_to_pass = ct_gender if ct_gender != "Any" else None
-        masking_to_pass = ct_masking if ct_masking != "Any" else None
-        intervention_model_to_pass = ct_intervention_model if ct_intervention_model != "Any" else None
-
-        ct_status_message.info(f"Searching ClinicalTrials.gov with specified parameters...")
-        
-        with st.spinner(f"Searching ClinicalTrials.gov..."):
-            ct_results = fetch_clinicaltrials_results(
-                disease_input=disease,
-                outcome_input=outcome_of_interest,
-                #min_age=min_age_to_pass,
-                #max_age=max_age_to_pass,
-                std_age=std_Age_to_pass,
-                location_country=location_country_to_pass,
-                gender=gender_to_pass,
-                masking_type=masking_to_pass,
-                intervention_model=intervention_model_to_pass,
-                max_results=max_results_per_source
-            )
-        
-        if ct_results:
-            st.write(f"Found {len(ct_results)} Clinical Trial records **with results available** matching all criteria:") 
-            for res in ct_results:
-                st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})*") 
-                st.divider()
-        else:
-            # The st.info messages within fetch_clinicaltrials_results will provide more context
-            ct_status_message.warning(f"No Clinical Trial records found matching all criteria. Check API request details in the info messages above.")
-        
+        if ct_api_query_string:
+            ct_status_message.info(f"Searching ClinicalTrials.gov with terms: {ct_api_query_string}")
+            with st.spinner(f"Searching ClinicalTrials.gov..."):
+                ct_results = fetch_clinicaltrials_results(ct_api_query_string, max_results_per_source)
+            
+            if ct_results:
+                st.write(f"Found {len(ct_results)} Clinical Trial records:")
+                for res in ct_results:
+                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})* (RAG-readable HTML record)")
+                    st.divider()
+            else:
+                ct_status_message.info(f"No results from ClinicalTrials.gov for terms: {ct_api_query_string}")
+        else: 
+            ct_status_message.warning("Could not construct a ClinicalTrials.gov query from inputs.")
         st.markdown("---")
         st.success("Search complete.")
 else:
@@ -458,6 +279,7 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.header("Other Free Medical Research Databases")
+# This ensures the loop iterates over the correctly defined list
 for db in OTHER_DATABASES: 
     st.sidebar.markdown(f"[{db['name']}]({db['url']})")
 st.sidebar.markdown("---")
