@@ -41,7 +41,7 @@ def _construct_clinicaltrials_query_term_string( # Renamed to indicate it's an i
 
     # --- Advanced Filters (part of the query.term string) ---
     if std_age and std_age != "Any":
-        query_parts.append(f"STD_AGE[{std_age.upper()}]") 
+        query_parts.append(f"STD_AGE[{std_age.strip()}]") 
     #if min_age is not None:
     #    query_parts.append(f"MIN_AGE[{int(min_age)}]") 
     
