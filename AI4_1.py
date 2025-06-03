@@ -175,23 +175,29 @@ def fetch_clinicaltrials_results(query, max_results=10):
         studies = data.get("studies", [])
         if not studies: return []
 
-        for study_container in studies:
-            study = study_container.get("protocolSection", {})
-            if not study: continue
-            identification_module = study.get("identificationModule", {})
-            status_module = study.get("statusModule", {})
+        for study_container in studies: # study_container is the actual 'study' object from API
+            # Check for the 'hasResults' flag at the top level of the study_container
+            if not study_container.get("hasResults", False): # Default to False if key is missing
+                continue # Skip this trial if hasResults is not true
+
+            # If hasResults is true, proceed to extract other details
+            protocol_section = study_container.get("protocolSection", {})
+            if not protocol_section: continue # Should ideally always be there if hasResults is true
+
+            identification_module = protocol_section.get("identificationModule", {})
+            status_module = protocol_section.get("statusModule", {})
             
             nct_id = identification_module.get("nctId", "N/A")
             title = identification_module.get("officialTitle") or identification_module.get("briefTitle", "No title available")
-            status = status_module.get("overallStatus", "N/A")
+            status = status_module.get("overallStatus", "N/A") # Overall status of the trial
             link_url = f"https://clinicaltrials.gov/study/{nct_id}" if nct_id != "N/A" else "#"
             
             ct_results_list.append({
                 "title": title, 
                 "link": link_url,
                 "nct_id": nct_id,
-                "is_rag_candidate": True,
-                "source_type": "Clinical Trial Record"
+                "is_rag_candidate": True, # Trial record page is HTML, RAG-readable
+                "source_type": "Clinical Trial Record (Results Posted)" # Updated source_type
             })
     except Exception as e:
         st.error(f"ClinicalTrials.gov API Error: {str(e)}")
@@ -264,12 +270,12 @@ if st.sidebar.button("Search"):
                 ct_results = fetch_clinicaltrials_results(ct_api_query_string, max_results_per_source)
             
             if ct_results:
-                st.write(f"Found {len(ct_results)} Clinical Trial records:")
+                st.write(f"Found {len(ct_results)} Clinical Trial records **with results posted**:") # Minor text update
                 for res in ct_results:
-                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})* (RAG-readable HTML record)")
+                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})*") # source_type now includes "(Results Posted)"
                     st.divider()
             else:
-                ct_status_message.info(f"No results from ClinicalTrials.gov for terms: {ct_api_query_string}")
+                ct_status_message.info(f"No Clinical Trial records found **with results posted** for terms: {ct_api_query_string}") # Minor text update
         else: 
             ct_status_message.warning("Could not construct a ClinicalTrials.gov query from inputs.")
         st.markdown("---")
