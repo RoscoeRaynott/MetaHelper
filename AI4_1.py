@@ -327,9 +327,7 @@ def fetch_clinicaltrials_results(
         return ct_results_list
     
     except requests.exceptions.HTTPError as http_err:
-        st.error(
-            f\"ClinicalTrials.gov API Error: HTTP {http_err.response.status_code} - {http_err.response.text}\"
-        )
+        st.error(f\"ClinicalTrials.gov API Error: HTTP {http_err.response.status_code} - {http_err.response.text}\")
         return []
     except Exception as e:
         st.error(f\"ClinicalTrials.gov API Error: {str(e)}\")
