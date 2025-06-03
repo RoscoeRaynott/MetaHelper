@@ -226,7 +226,7 @@ def fetch_clinicaltrials_results(
 
     # 2. Add the keyword search string to query.term if keywords exist
     if keyword_parts:
-        params["query.term"] = " AND ".join(keyword_parts) # Using AND for clarity, API might default to AND for space
+        params["query.term"] = " ".join(keyword_parts) # Using AND for clarity, API might default to AND for space
                                                        # If this causes issues, try " ".join(keyword_parts)
 
     # 3. Add FIXED filters as specific query parameters
