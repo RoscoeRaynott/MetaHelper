@@ -220,11 +220,13 @@ def fetch_clinicaltrials_results(
             params["filter.advanced"] = age_filter
     
     if gender_adv and gender_adv != "Any":
-        # API expects 'ALL' (maps to 'BOTH' in API), 'FEMALE', 'MALE'
-        if gender_adv.upper() == "ALL":
-            params["query.patient.gender"] = "BOTH" 
+    # API expects 'ALL', 'FEMALE', 'MALE' in AREA[Sex]
+        sex_value = "ALL" if gender_adv.upper() == "ALL" else gender_adv.upper()
+        gender_filter = f"AREA[Sex]{sex_value}"
+        if "filter.advanced" in params:
+            params["filter.advanced"] += f" AND {gender_filter}"
         else:
-            params["query.patient.gender"] = gender_adv.upper()
+            params["filter.advanced"] = gender_filter
     
     if location_country_adv and location_country_adv.strip() and location_country_adv != "Any":
         params["query.locn"] = location_country_adv.strip()
