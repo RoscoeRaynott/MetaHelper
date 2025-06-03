@@ -19,7 +19,6 @@ def construct_clinicaltrials_api_query(
     disease_input, 
     outcome_input, 
     population_input, 
-    # study_type_selection_ignored - this parameter can be removed if fixed for CT.gov
     min_age=None,
     max_age=None,
     location_country=None,
@@ -29,7 +28,8 @@ def construct_clinicaltrials_api_query(
 ):
     """
     Constructs a targeted ClinicalTrials.gov API query with fixed parameters
-    (Study Type: Interventional, Status: Completed) and optional advanced filters.
+    and optional advanced filters.
+    "Population" input is now primarily searched within ELIGIBILITY_CRITERIA.
     """
     query_parts = []
 
@@ -44,33 +44,46 @@ def construct_clinicaltrials_api_query(
     if outcome_input and outcome_input.strip():
         query_parts.append(f"OUTCOME_MEASURE[{outcome_input.strip()}]")
 
-    # Population input remains a general search term for flexibility
+    # --- Population Input: Targeted to Eligibility Criteria ---
     if population_input and population_input.strip():
-        query_parts.append(f"AREA[OverallOfficialOrBriefTitleBriefSummaryDetailedDescriptionConditionKeywordEligibilityCriteria]Search[{population_input.strip()}]")
+        # This is a more precise way to handle population descriptions
+        query_parts.append(f"ELIGIBILITY_CRITERIA[{population_input.strip()}]")
+        # You could also add it as a general keyword search if desired,
+        # but targeting eligibility is often better for "population".
+        # For example, to also search titles/summaries etc. for the population term:
+        # query_parts.append(f"AREA[OverallOfficialOrBriefTitleBriefSummary]Search[{population_input.strip()}]")
+        # However, be cautious as this can make the query very broad or very narrow unpredictably.
+        # Let's stick to ELIGIBILITY_CRITERIA for now for more predictability.
 
     # --- Advanced Filters ---
-    if min_age: # Assuming min_age is an integer
-        query_parts.append(f"MIN_AGE[{min_age} YEARS]") # API expects unit
+    if min_age: 
+        query_parts.append(f"MIN_AGE[{min_age} YEARS]")
     
-    if max_age: # Assuming max_age is an integer
-        query_parts.append(f"MAX_AGE[{max_age} YEARS]") # API expects unit
+    if max_age:
+        query_parts.append(f"MAX_AGE[{max_age} YEARS]")
         
     if location_country and location_country.strip() and location_country != "Any":
         query_parts.append(f"LOCATION_COUNTRY[{location_country.strip()}]")
         
-    if gender and gender != "Any": # Assuming 'Any' is the default option
-        query_parts.append(f"GENDER[{gender}]") # API values: All, Female, Male
+    if gender and gender != "Any": 
+        query_parts.append(f"GENDER[{gender}]")
         
-    if masking_type and masking_type != "Any": # e.g., "Double", "Single", "None"
+    if masking_type and masking_type != "Any": 
         query_parts.append(f"MASKING[{masking_type}]")
         
-    if intervention_model and intervention_model != "Any": # e.g., "Single Group Assignment", "Parallel Assignment"
+    if intervention_model and intervention_model != "Any": 
         query_parts.append(f"INTERVENTION_MODEL[{intervention_model.strip()}]")
 
-    if not query_parts: # Should ideally not happen given fixed params
+    if not query_parts:
         return None 
     
-    final_query = " AND ".join(query_parts)
+    # Ensure no empty strings are joined if some inputs were None or empty
+    # Though fixed params should prevent a completely empty list.
+    valid_query_parts = [part for part in query_parts if part]
+    if not valid_query_parts:
+        return None
+
+    final_query = " AND ".join(valid_query_parts)
     return final_query
 
 
