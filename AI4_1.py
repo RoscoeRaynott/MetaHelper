@@ -208,8 +208,11 @@ def fetch_clinicaltrials_results(
     
     # Advanced Filters from user input
     if std_age_adv and std_age_adv != "Any":
-        # API expects: CHILD, ADULT, OLDER_ADULT
-        params["query.patient.age"] = std_age_adv.upper()
+        age_filter = f"AREA[Age]{std_age_adv.upper()}"
+        if "filter.advanced" in params:
+            params["filter.advanced"] += f" AND {age_filter}"
+        else:
+            params["filter.advanced"] = age_filter
     
     if gender_adv and gender_adv != "Any":
         # API expects 'ALL' (maps to 'BOTH' in API), 'FEMALE', 'MALE'
