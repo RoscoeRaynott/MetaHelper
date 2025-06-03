@@ -214,7 +214,10 @@ def fetch_clinicaltrials_results(
             age_filter = "AREA[MinimumAge]RANGE[18 years, 64 years] AND AREA[MaximumAge]RANGE[18 years, 64 years]"
         elif std_age_adv == "OLDER_ADULT":
             age_filter = "AREA[MinimumAge]RANGE[65 years, MAX]"
-    params["filter.advanced"] = age_filter
+        if "filter.advanced" in params:
+            params["filter.advanced"] += f" AND {age_filter}"
+        else:
+            params["filter.advanced"] = age_filter
     
     if gender_adv and gender_adv != "Any":
         # API expects 'ALL' (maps to 'BOTH' in API), 'FEMALE', 'MALE'
