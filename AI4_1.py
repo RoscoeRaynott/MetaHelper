@@ -204,7 +204,7 @@ def fetch_clinicaltrials_results(
         "COMPLETED", "TERMINATED", "WITHDRAWN", 
         "ACTIVE_NOT_RECRUITING", "SUSPENDED"
     ]
-    params["query.overallStatus"] = ",".join(no_longer_recruiting_statuses)
+    params["query.Status"] = ",".join(no_longer_recruiting_statuses)
     
     # Advanced Filters from user input
     if std_age_adv and std_age_adv != "Any":
