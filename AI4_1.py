@@ -18,7 +18,7 @@ except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 def construct_clinicaltrials_api_query(
     disease_input, 
     outcome_input, 
-    population_input, 
+    population_input=None, 
     min_age=None,
     max_age=None,
     location_country=None,
@@ -42,12 +42,13 @@ def construct_clinicaltrials_api_query(
     if population_input and population_input.strip():
         query_parts.append(population_input.strip())
 
+    query_parts.append("Interventional")
     if not query_parts:
         return None 
 
     # Return simple keyword query joined with AND
     final_query = " ".join(query_parts)
-    st.write(final_query)
+    # st.write(final_query)
     return final_query
 
 
