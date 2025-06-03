@@ -46,7 +46,7 @@ def construct_clinicaltrials_api_query(
         return None 
 
     # Return simple keyword query joined with AND
-    final_query = "".join(query_parts)
+    final_query = " ".join(query_parts)
     st.write(final_query)
     return final_query
 
