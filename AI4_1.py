@@ -192,9 +192,9 @@ def fetch_clinicaltrials_results(
     # Study Type (Interventional or Observational based on sidebar)
     # API expects: INTERVENTIONAL, OBSERVATIONAL, etc. (typically uppercase)
     if study_type_from_sidebar == "Clinical Trials":
-        params["query.studyType"] = "INTERVENTIONAL"
+        params["query.StudyType"] = "INTERVENTIONAL"
     elif study_type_from_sidebar == "Observational Studies":
-        params["query.studyType"] = "OBSERVATIONAL"
+        params["query.StudyType"] = "OBSERVATIONAL"
     # If "All Study Types" or other, this parameter might be omitted or set to a default
     # For now, if not Clinical Trials or Observational, it won't be added, making it broader.
     # Or, you could default: else: params["query.studyType"] = "INTERVENTIONAL"
