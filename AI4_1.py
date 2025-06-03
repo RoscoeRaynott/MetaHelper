@@ -199,7 +199,6 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
 def fetch_clinicaltrials_results( # Original function name kept
     disease_input,
     outcome_input,
-    population_input,
     std_age=None,
     #min_age=None,
     #max_age=None,
@@ -433,7 +432,6 @@ if st.sidebar.button("Search"):
             ct_results = fetch_clinicaltrials_results(
                 disease_input=disease,
                 outcome_input=outcome_of_interest,
-                population_input=target_population,
                 #min_age=min_age_to_pass,
                 #max_age=max_age_to_pass,
                 std_age=std_Age_to_pass,
