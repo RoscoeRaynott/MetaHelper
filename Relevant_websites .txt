@@ -1,0 +1,1 @@
+https://www.clinicaltrials.gov/data-api/api#get-/studies
