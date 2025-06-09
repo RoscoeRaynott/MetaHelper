@@ -108,19 +108,7 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
         if not isinstance(articles_list_xml, list): articles_list_xml = [articles_list_xml] if articles_list_xml else []
         if not articles_list_xml:
             return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No article details)"
-        def print_mesh_terms_for_keywords(keywords):
-            """Print MeSH terms for each keyword"""
-            for keyword in keywords:
-                if keyword and keyword.strip():
-                    print(f"\n=== MeSH Terms for: '{keyword}' ===")
-                    mesh_terms = get_mesh_terms(keyword.strip(), EMAIL_FOR_NCBI, NCBI_API_KEY)
-                    
-                    if mesh_terms:
-                        for i, term in enumerate(mesh_terms, 1):
-                            print(f"{i}. {term}")
-                    else:
-                        print("No MeSH terms found")
-                        
+
         for article_data in articles_list_xml:
             if not isinstance(article_data, dict): continue
             medline_citation = article_data.get("MedlineCitation", {})
@@ -395,8 +383,6 @@ if st.sidebar.button("Search"):
     if not (disease_input_ui or outcome_input_ui or population_input_ui): # Check if at least one main keyword is provided
         st.error("Please fill in at least one of: Disease, Outcome, or Target Population.")
     else:
-        keywords = [disease_input_ui, outcome_input_ui, population_input_ui]
-        print_mesh_terms_for_keywords(keywords)
         # --- PubMed Search ---
         st.header("PubMed / PubMed Central Results")
         pubmed_status_message = st.empty()
