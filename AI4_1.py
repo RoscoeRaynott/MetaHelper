@@ -188,7 +188,7 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
                                    .get("Article", {}) \
                                    .get("Abstract", {}) \
                                    .get("AbstractText", [])
-           if isinstance(abstract, list):
+            if isinstance(abstract, list):
                 abstract_text = " ".join([p.get("#text", "") if isinstance(p, dict) else str(p)
                                            for p in abstract])
             elif isinstance(abstract, dict):
