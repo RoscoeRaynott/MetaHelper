@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import xmltodict
 import json
-
+from functools import lru_cache
 # --- Configuration ---
 try:
     NCBI_API_KEY = st.secrets.get("NCBI_API_KEY")
@@ -13,8 +13,40 @@ try:
     EMAIL_FOR_NCBI = st.secrets.get("EMAIL_FOR_NCBI", "your_default_email@example.com")
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
-# --- Helper function _construct_clinicaltrials_query_term_string is REMOVED ---
+def get_mesh_uids(term, api_key=None, email=None):
+    params = {
+        "db": "mesh", "term": term, "retmode": "json", "retmax": "5",
+        "tool": "streamlit_app_mesh", "email": email
+    }
+    if api_key: params["api_key"] = api_key
+    r = requests.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", params=params)
+    r.raise_for_status()
+    return r.json()["esearchresult"]["idlist"]
 
+def fetch_mesh_terms(mesh_uids, api_key=None, email=None):
+    params = {
+        "db": "mesh", "id": ",".join(mesh_uids),
+        "retmode": "xml", "tool": "streamlit_app_mesh", "email": email
+    }
+    if api_key: params["api_key"] = api_key
+    r = requests.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi", params=params)
+    r.raise_for_status()
+    xml = xmltodict.parse(r.content)
+    terms = set()
+    for desc in xml.get("MeshDescriptorSet", {}).get("MeshDescriptor", []):
+        name = desc.get("DescriptorName", {}).get("#text")
+        if name: terms.add(name)
+        for concept in desc.get("ConceptList", {}).get("Concept", []):
+            for term in concept.get("TermList", {}).get("Term", []):
+                txt = term.get("#text")
+                if txt: terms.add(txt)
+    return list(terms)
+
+@lru_cache(maxsize=128)
+def expand_with_mesh(term):
+    uids = get_mesh_uids(term, api_key=NCBI_API_KEY, email=EMAIL_FOR_NCBI)
+    return fetch_mesh_terms(uids, api_key=NCBI_API_KEY, email=EMAIL_FOR_NCBI) or [term]
+ 
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
     # This function remains unchanged from your last working version for PubMed
@@ -23,6 +55,15 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
     if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
     if population and population.strip(): search_stages_keywords.append(population.strip())
 
+    # Expand each user input via MeSH and build OR‐joined phrases
+    raw_terms = [disease, outcome, population]
+    search_stages_keywords = []
+    for raw in raw_terms:
+        if raw and raw.strip():
+            mesh_synonyms = expand_with_mesh(raw.strip())
+            # quote each term for exact‐phrase matching
+            quoted = [f'"{s}"' for s in mesh_synonyms]
+            search_stages_keywords.append(" OR ".join(quoted))
     if not search_stages_keywords:
         return [], "No search terms provided for PubMed."
 
