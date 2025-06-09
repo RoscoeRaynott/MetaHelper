@@ -24,8 +24,9 @@ def get_mesh_uids(term, api_key=None, email=None):
     return r.json()["esearchresult"]["idlist"]
 
 def fetch_mesh_terms(mesh_uids, api_key=None, email=None):
-    # If no MeSH UIDs are provided, return an empty list to avoid an invalid API call
+    # If no MeSH UIDs are provided, return an empty list to avoid an invalid request
     if not mesh_uids:
+        print("No MeSH UIDs provided, returning empty list.")
         return []
 
     # Prepare API request parameters
@@ -40,13 +41,19 @@ def fetch_mesh_terms(mesh_uids, api_key=None, email=None):
         params["api_key"] = api_key
 
     # Make the API request
-    r = requests.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi", params=params)
+    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    r = requests.get(url, params=params)
     r.raise_for_status()  # Raises an exception for HTTP errors (e.g., 4xx, 5xx)
 
-    # Debugging: Print response details to diagnose the issue
+    # Debugging: Print response details to understand the issue
     print("Response status code:", r.status_code)
     print("Response content-type:", r.headers.get('Content-Type'))
     print("Response content:", r.text)
+
+    # Check if the response is XML
+    if "xml" not in r.headers.get("Content-Type", "").lower():
+        print("Unexpected content type received, returning empty list.")
+        return []
 
     # Parse the XML response with error handling
     try:
@@ -54,20 +61,19 @@ def fetch_mesh_terms(mesh_uids, api_key=None, email=None):
     except Exception as e:
         print("Error parsing XML:", str(e))
         print("Response content:", r.text)
-        raise  # Re-raise the exception after logging
+        return []
 
-    # Extract MeSH terms from the parsed XML
-    terms = set()
-    for desc in xml.get("MeshDescriptorSet", {}).get("MeshDescriptor", []):
-        name = desc.get("DescriptorName", {}).get("#text")
-        if name:
-            terms.add(name)
-        for concept in desc.get("ConceptList", {}).get("Concept", []):
-            for term in concept.get("TermList", {}).get("Term", []):
-                txt = term.get("#text")
-                if txt:
-                    terms.add(txt)
-    return list(terms)
+    # Extract MeSH terms from the parsed XML (adjust this based on actual XML structure)
+    terms = []
+    if xml and "MeshDescriptorSet" in xml:
+        descriptors = xml["MeshDescriptorSet"].get("MeshDescriptor", [])
+        if isinstance(descriptors, dict):  # Single descriptor case
+            descriptors = [descriptors]
+        for desc in descriptors:
+            name = desc.get("DescriptorName", {}).get("#text")
+            if name:
+                terms.append(name)
+    return terms
 
 @lru_cache(maxsize=128)
 def expand_with_mesh(term):
