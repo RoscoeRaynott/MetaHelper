@@ -199,10 +199,10 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
             for raw, syns, _ in search_stages:
                 # check raw first
                 if raw.lower() in title.lower() or raw.lower() in abstract_text.lower():
-                   matched = raw
+                    matched = raw
                     break
                 # then check each synonym
-               for s in syns:
+                for s in syns:
                     if s.lower() in title.lower() or s.lower() in abstract_text.lower():
                         matched = s
                         break
