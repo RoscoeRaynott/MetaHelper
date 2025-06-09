@@ -14,20 +14,24 @@ try:
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
 # ADD THIS NEW HELPER FUNCTION FOR CT.GOV
+# REPLACE the entire get_mesh_term_for_ct function with this new, corrected version.
+
 def get_mesh_term_for_ct(term, api_key=None, email=None):
     """
     Fetches the official MeSH term for a given keyword.
     Returns the official term, or the original term if not found.
     """
     if not term or not term.strip():
-        return term # Return original term if input is empty
+        return term
 
     original_term = term.strip()
     
+    # 1. CORRECTED ESearch Query: More precise search
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
         "db": "mesh",
-        "term": f'"{original_term}"[MeSH Terms] OR "{original_term}"[All Fields]',
+        # This query is more specific: it prioritizes exact MeSH term matches and title words.
+        "term": f'"{original_term}"[MeSH Terms] OR "{original_term}"[Title]',
         "retmax": "1",
         "retmode": "json",
         "tool": "streamlit_app_pubmed_finder",
@@ -51,16 +55,21 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
             summary_response = requests.get(summary_url, params=summary_params, timeout=10)
             summary_response.raise_for_status()
             summary_data = summary_response.json()
-            # The actual MeSH term is in result -> uid -> ds_meshterms
-            mesh_term = summary_data.get("result", {}).get(mesh_id, {}).get("ds_meshterms", [original_term])[0]
+
+            # 2. CORRECTED Field Name: Use 'ds_meshheading' for the official term.
+            # The result structure is result -> [uid] -> ds_meshheading
+            result_for_id = summary_data.get("result", {}).get(mesh_id, {})
+            mesh_term = result_for_id.get("ds_meshheading", original_term)
+            
+            # ds_meshheading is the main title. It's not a list.
             return mesh_term
         else:
-            return original_term # Return original term if no MeSH term found
+            # If no MeSH entry is found, return the user's original term.
+            return original_term
     
     except Exception as e:
         st.warning(f"MeSH lookup failed for '{original_term}', using original term. Error: {str(e)}")
         return original_term
-
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
     """
