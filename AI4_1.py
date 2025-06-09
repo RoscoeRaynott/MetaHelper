@@ -13,6 +13,54 @@ try:
     EMAIL_FOR_NCBI = st.secrets.get("EMAIL_FOR_NCBI", "your_default_email@example.com")
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
+# ADD THIS NEW HELPER FUNCTION FOR CT.GOV
+def get_mesh_term_for_ct(term, api_key=None, email=None):
+    """
+    Fetches the official MeSH term for a given keyword.
+    Returns the official term, or the original term if not found.
+    """
+    if not term or not term.strip():
+        return term # Return original term if input is empty
+
+    original_term = term.strip()
+    
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+    params = {
+        "db": "mesh",
+        "term": f'"{original_term}"[MeSH Terms] OR "{original_term}"[All Fields]',
+        "retmax": "1",
+        "retmode": "json",
+        "tool": "streamlit_app_pubmed_finder",
+        "email": email,
+    }
+    if api_key:
+        params["api_key"] = api_key
+    
+    try:
+        response = requests.get(base_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        id_list = data.get("esearchresult", {}).get("idlist", [])
+        
+        if id_list:
+            mesh_id = id_list[0]
+            summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+            summary_params = { "db": "mesh", "id": mesh_id, "retmode": "json", "tool": "streamlit_app_pubmed_finder", "email": email }
+            if api_key: summary_params["api_key"] = api_key
+            
+            summary_response = requests.get(summary_url, params=summary_params, timeout=10)
+            summary_response.raise_for_status()
+            summary_data = summary_response.json()
+            # The actual MeSH term is in result -> uid -> ds_meshterms
+            mesh_term = summary_data.get("result", {}).get(mesh_id, {}).get("ds_meshterms", [original_term])[0]
+            return mesh_term
+        else:
+            return original_term # Return original term if no MeSH term found
+    
+    except Exception as e:
+        st.warning(f"MeSH lookup failed for '{original_term}', using original term. Error: {str(e)}")
+        return original_term
+
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
     """
@@ -176,15 +224,29 @@ def fetch_clinicaltrials_results(
         "pageSize": str(max_results * 2), # Fetch more for post-filtering
     }
 
+    # --- NEW: MeSH Term Lookup for Disease ---
+    if disease_input and disease_input.strip():
+        st.info(f"Looking up MeSH term for '{disease_input}'...")
+        mesh_disease_term = get_mesh_term_for_ct(disease_input, NCBI_API_KEY, EMAIL_FOR_NCBI)
+        if mesh_disease_term.lower() != disease_input.strip().lower():
+            st.info(f"Found MeSH term: '{mesh_disease_term}'. Using it for the condition search.")
+            # Search for the official MeSH term OR the user's original term for broader coverage
+            params["query.cond"] = f'{mesh_disease_term} OR "{disease_input.strip()}"'
+        else:
+            st.info("No specific MeSH term found, using original term for condition search.")
+            params["query.cond"] = disease_input.strip()
+    # --- END NEW ---
+
+
     # 1. Add the single free-text input (population) to query.term
     if population_input and population_input.strip():
         params["query.term"] = population_input.strip() 
     # If population_input is empty, query.term will not be sent, 
     # and the search will rely solely on the other specific query.* parameters.
 
-    # 2. Add specific query parameters for structured inputs
-    if disease_input and disease_input.strip():
-        params["query.cond"] = disease_input.strip() # Condition/Disease keywords
+    # # 2. Add specific query parameters for structured inputs
+    # if disease_input and disease_input.strip():
+    #     params["query.cond"] = disease_input.strip() # Condition/Disease keywords
 
     if outcome_input and outcome_input.strip():
         params["query.outc"] = outcome_input.strip() # Outcome Measure keywords
