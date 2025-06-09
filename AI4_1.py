@@ -31,7 +31,7 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
     params = {
         "db": "mesh",
         # This query is more specific: it prioritizes exact MeSH term matches and title words.
-        "term": f'"{original_term}"[MeSH Terms] OR "{original_term}"[Title]',
+        "term": f'"{original_term}"[MeSH Terms] OR "{original_term}"',
         "retmax": "1",
         "retmode": "json",
         "tool": "streamlit_app_pubmed_finder",
