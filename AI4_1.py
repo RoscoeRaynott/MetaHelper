@@ -55,15 +55,18 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
     if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
     if population and population.strip(): search_stages_keywords.append(population.strip())
 
-    # Expand each user input via MeSH and build OR‐joined phrases
-    raw_terms = [disease, outcome, population]
-    search_stages_keywords = []
+    # Expand each user input via MeSH, build OR‐joined phrases,
+    # *and* keep track of the synonym lists for later matching
+    raw_terms       = [disease, outcome, population]
+    search_stages   = []   # will hold (raw_term, [synonyms], query_string)
     for raw in raw_terms:
         if raw and raw.strip():
-            mesh_synonyms = expand_with_mesh(raw.strip())
-            # quote each term for exact‐phrase matching
-            quoted = [f'"{s}"' for s in mesh_synonyms]
-            search_stages_keywords.append(" OR ".join(quoted))
+            syns = expand_with_mesh(raw.strip())
+            # phrase‐quote each synonym
+            quoted = [f'"{s}"' for s in syns]
+            qstr = " OR ".join(quoted)
+            search_stages.append((raw.strip(), syns, qstr))
+    
     if not search_stages_keywords:
         return [], "No search terms provided for PubMed."
 
@@ -179,11 +182,41 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
                             is_rag_candidate = True
                             break
             
+            # --- NEW: extract abstract text for matching ---
+            abstract_text = ""
+            abstract = article_data.get("MedlineCitation", {}) \
+                                   .get("Article", {}) \
+                                   .get("Abstract", {}) \
+                                   .get("AbstractText", [])
+           if isinstance(abstract, list):
+                abstract_text = " ".join([p.get("#text", "") if isinstance(p, dict) else str(p)
+                                           for p in abstract])
+            elif isinstance(abstract, dict):
+                abstract_text = abstract.get("#text", "")
+
+           # --- NEW: find which term/synonym actually matched ---
+            matched = None
+            for raw, syns, _ in search_stages:
+                # check raw first
+                if raw.lower() in title.lower() or raw.lower() in abstract_text.lower():
+                   matched = raw
+                    break
+                # then check each synonym
+               for s in syns:
+                    if s.lower() in title.lower() or s.lower() in abstract_text.lower():
+                        matched = s
+                        break
+                if matched:
+                    break
+            if matched is None:
+                matched = raw_terms[0]   # or “Unknown” / fallback
+
             pubmed_results_list.append({
-                "title": title, 
-                "link": pmc_link_url if is_rag_candidate else pubmed_link_url,
+                "title":          title,
+                "link":           pmc_link_url if is_rag_candidate else pubmed_link_url,
                 "is_rag_candidate": is_rag_candidate,
-                "source_type": "PubMed Central Article" if is_rag_candidate else "PubMed Abstract"
+                "source_type":    "PubMed Central Article" if is_rag_candidate else "PubMed Abstract",
+                "matched_term":   matched,              # ← new field
             })
         return pubmed_results_list, f"PubMed: {' -> '.join(processed_query_description_parts)} (Fetched {len(pubmed_results_list)} details)"
     except Exception as e:
@@ -439,10 +472,12 @@ if st.sidebar.button("Search"):
         if pubmed_results:
             st.write(f"Found {len(pubmed_results)} PubMed/PMC items:")
             for res in pubmed_results:
-                if res.get("is_rag_candidate"):
-                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
-                else:
-                    st.markdown(f"⚠️ [{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
+                tag = "✅" if res["is_rag_candidate"] else "⚠️"
+                st.markdown(
+                    f"{tag} **[{res['title']}]({res['link']})** – "
+                    f"*{res['source_type']}*  \n"
+                    f"Matched on: **{res['matched_term']}**"
+                )
                 st.divider()
         else:
             st.write("No results from PubMed based on the criteria or an error occurred during search.")
