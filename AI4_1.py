@@ -31,8 +31,8 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
         "db": "mesh",
-        "term": sanitized_term, # Use the simple, sanitized term
-        "retmax": "1",
+        "term": f"{sanitized_term}[All Fields]",  # Broad search across all fields
+        "retmax": "10",  # Fetch multiple results to ensure matches
         "retmode": "json",
         "tool": "streamlit_app_pubmed_finder",
         "email": email,
@@ -50,24 +50,61 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
         id_list = data.get("esearchresult", {}).get("idlist", [])
         
         if id_list:
-            mesh_id = id_list[0]
+            # Fetch ESummary for all UIDs
             summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-            summary_params = { "db": "mesh", "id": mesh_id, "retmode": "json", "tool": "streamlit_app_pubmed_finder", "email": email }
-            if api_key: summary_params["api_key"] = api_key
+            summary_params = {
+                "db": "mesh",
+                "id": ",".join(id_list),  # Query all UIDs
+                "retmode": "json",
+                "tool": "streamlit_app_pubmed_finder",
+                "email": email
+            }
+            if api_key:
+                summary_params["api_key"] = api_key
             
             summary_response = requests.get(summary_url, params=summary_params, timeout=10)
             summary_response.raise_for_status()
             summary_data = summary_response.json()
 
-            # 2. CORRECTED Field Name: Use 'ds_meshheading' for the official term.
-            # The result structure is result -> [uid] -> ds_meshheading
-            result_for_id = summary_data.get("result", {}).get(mesh_id, {})
-            mesh_term = result_for_id.get("ds_meshheading", original_term)
+            # Check each UID for the best matching MeSH term
+            best_match = None
+            best_score = -1
+            sanitized_lower = sanitized_term.lower()
+
+            for mesh_id in id_list:
+                result_for_id = summary_data.get("result", {}).get(mesh_id, {})
+                mesh_term = result_for_id.get("ds_meshheading", "")
+                entry_terms = result_for_id.get("ds_entryterms", [])
+                
+                # Convert entry terms to lowercase for case-insensitive comparison
+                entry_terms_lower = [et.lower() for et in entry_terms]
+                
+                # Score the match: prioritize exact matches in mesh_term or entry_terms
+                score = 0
+                if mesh_term.lower() == sanitized_lower:
+                    score = 3  # Highest priority: exact match with mesh heading
+                elif sanitized_lower in entry_terms_lower:
+                    score = 2  # Second priority: exact match with entry term
+                elif any(sanitized_lower in et for et in entry_terms_lower):
+                    score = 1  # Third priority: partial match in entry terms
+                
+                if score > best_score and mesh_term:
+                    best_score = score
+                    best_match = mesh_term
             
-            # ds_meshheading is the main title. It's not a list.
+            if best_match:
+                st.info(f"DEBUG: Selected MeSH term '{best_match}' for '{sanitized_term}'")
+                return best_match
+            
+            # Fallback: return the first valid MeSH term if no good match
+            first_id = id_list[0]
+            result_for_id = summary_data.get("result", {}).get(first_id, {})
+            mesh_term = result_for_id.get("ds_meshheading", original_term)
+            st.info(f"DEBUG: No exact match found, using first MeSH term '{mesh_term}'")
             return mesh_term
+        
         else:
-            # If no MeSH entry is found, return the user's original term.
+            st.warning(f"No MeSH term found for '{sanitized_term}'. API response: {data}")
             return original_term
     
     except Exception as e:
