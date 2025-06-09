@@ -30,8 +30,7 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
         "db": "mesh",
-        # This query is more specific: it prioritizes exact MeSH term matches and title words.
-        "term": f'"{original_term}"[MeSH Terms] OR "{original_term}"',
+        "term": sanitized_term, # Use the simple, sanitized term
         "retmax": "1",
         "retmode": "json",
         "tool": "streamlit_app_pubmed_finder",
@@ -39,6 +38,9 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
     }
     if api_key:
         params["api_key"] = api_key
+    
+    # Add a debug message to see exactly what is being sent
+    st.info(f"DEBUG: Searching MeSH database for term: '{sanitized_term}'")
     
     try:
         response = requests.get(base_url, params=params, timeout=10)
