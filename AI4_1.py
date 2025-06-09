@@ -70,6 +70,8 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
     final_id_list = []
     processed_query_description_parts = []
 
+    final_query = " AND ".join(search_stages_keywords + [study_type_query_segment] if study_type_query_segment else search_stages_keywords)
+    st.info(f"PubMed Final Query: {final_query}")
     for i, keyword_stage_term in enumerate(search_stages_keywords):
         current_stage_search_query = ""
         if study_type_query_segment:
