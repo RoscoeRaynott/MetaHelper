@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import xmltodict
 import json
+import re
 
 # --- Configuration ---
 try:
@@ -25,88 +26,119 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
         return term
 
     original_term = term.strip()
-    sanitized_term = original_term.replace('-', ' ')
-    
-    # 1. CORRECTED ESearch Query: More precise search
+    sanitized_term = original_term.replace('-', ' ').strip()
+    sanitized_lower = sanitized_term.lower()
+
+    # ESearch Query
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
         "db": "mesh",
-        "term": f"{sanitized_term}[All Fields]",  # Broad search across all fields
-        "retmax": "10",  # Fetch multiple results to ensure matches
+        "term": f"\"{sanitized_term}\"[MeSH Terms] OR {sanitized_term}[All Fields]",  # Precise and broad search
+        "retmax": "20",  # Capture multiple potential matches
         "retmode": "json",
         "tool": "streamlit_app_pubmed_finder",
         "email": email,
     }
     if api_key:
         params["api_key"] = api_key
-    
-    # Add a debug message to see exactly what is being sent
-    st.info(f"DEBUG: Searching MeSH database for term: '{sanitized_term}'")
-    
+
+    st.info(f"DEBUG: Searching MeSH database for term: '{sanitized_term}' with query: {params['term']}")
+
     try:
         response = requests.get(base_url, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         id_list = data.get("esearchresult", {}).get("idlist", [])
-        print(id_list)
-        if id_list:
-            # Fetch ESummary for all UIDs
-            summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
-            summary_params = {
-                "db": "mesh",
-                "id": ",".join(id_list),  # Query all UIDs
-                "retmode": "json",
-                "tool": "streamlit_app_pubmed_finder",
-                "email": email
-            }
-            if api_key:
-                summary_params["api_key"] = api_key
-            
-            summary_response = requests.get(summary_url, params=summary_params, timeout=10)
-            summary_response.raise_for_status()
-            summary_data = summary_response.json()
+        translationset = data.get("esearchresult", {}).get("translationset", [])
 
-            # Check each UID for the best matching MeSH term
-            best_match = None
-            best_score = -1
-            sanitized_lower = sanitized_term.lower()
+        st.info(f"DEBUG: ESearch response: id_list={id_list}, translationset={translationset}")
 
-            for mesh_id in id_list:
-                result_for_id = summary_data.get("result", {}).get(mesh_id, {})
-                mesh_term = result_for_id.get("ds_meshheading", "")
-                entry_terms = result_for_id.get("ds_entryterms", [])
-                
-                # Convert entry terms to lowercase for case-insensitive comparison
-                entry_terms_lower = [et.lower() for et in entry_terms]
-                
-                # Score the match: prioritize exact matches in mesh_term or entry_terms
-                score = 0
-                if mesh_term.lower() == sanitized_lower:
-                    score = 3  # Highest priority: exact match with mesh heading
-                elif sanitized_lower in entry_terms_lower:
-                    score = 2  # Second priority: exact match with entry term
-                elif any(sanitized_lower in et for et in entry_terms_lower):
-                    score = 1  # Third priority: partial match in entry terms
-                
-                if score > best_score and mesh_term:
-                    best_score = score
-                    best_match = mesh_term
-            
-            if best_match:
-                st.info(f"DEBUG: Selected MeSH term '{best_match}' for '{sanitized_term}'")
-                return best_match
-            
-            # Fallback: return the first valid MeSH term if no good match
-            first_id = id_list[0]
-            result_for_id = summary_data.get("result", {}).get(first_id, {})
-            mesh_term = result_for_id.get("ds_meshheading", original_term)
-            st.info(f"DEBUG: No exact match found, using first MeSH term '{mesh_term}'")
-            return mesh_term
-        
-        else:
-            st.warning(f"No MeSH term found for '{sanitized_term}'. API response: {data}")
+        if not id_list:
+            st.warning(f"No MeSH term found for '{sanitized_term}'. ESearch response: {data}")
             return original_term
-    
+
+        # Extract MeSH term from translationset, if available
+        mesh_term_from_translation = None
+        for translation in translationset:
+            to_field = translation.get("to", "")
+            # Extract term within quotes, e.g., "diabetes mellitus, type 2"[MeSH Terms] -> diabetes mellitus, type 2
+            match = re.search(r'"([^"]+)"\[MeSH Terms\]', to_field)
+            if match:
+                mesh_term_from_translation = match.group(1)
+                st.info(f"DEBUG: Found MeSH term in translationset: '{mesh_term_from_translation}'")
+                break
+
+        # Fetch ESummary for all UIDs
+        summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+        summary_params = {
+            "db": "mesh",
+            "id": ",".join(id_list),
+            "retmode": "json",
+            "tool": "streamlit_app_pubmed_finder",
+            "email": email
+        }
+        if api_key:
+            summary_params["api_key"] = api_key
+
+        summary_response = requests.get(summary_url, params=summary_params, timeout=10)
+        summary_response.raise_for_status()
+        summary_data = summary_response.json()
+
+        # Log ESummary response for debugging
+        st.info(f"DEBUG: ESummary response: {summary_data}")
+
+        # Find the best matching MeSH term
+        best_match = None
+        best_score = -1
+
+        for mesh_id in id_list:
+            result_for_id = summary_data.get("result", {}).get(mesh_id, {})
+            mesh_terms = result_for_id.get("ds_meshterms", [])
+            record_type = result_for_id.get("ds_recordtype", "")
+
+            if not mesh_terms:
+                st.info(f"DEBUG: No ds_meshterms for UID {mesh_id}")
+                continue
+
+            # The first term in ds_meshterms is the official MeSH term
+            mesh_term = mesh_terms[0] if mesh_terms else ""
+            mesh_terms_lower = [mt.lower() for mt in mesh_terms if isinstance(mt, str)]
+
+            # Score the match
+            score = 0
+            if mesh_term_from_translation and mesh_term.lower() == mesh_term_from_translation.lower():
+                score = 5  # Highest priority: matches translationset MeSH term
+            elif record_type == "descriptor":
+                score += 2  # Boost for primary descriptors
+                if sanitized_lower == mesh_term.lower():
+                    score += 2  # Exact match with official MeSH term
+                elif sanitized_lower in mesh_terms_lower:
+                    score += 1  # Input term is a synonym in ds_meshterms
+            elif record_type == "supplemental-record" and sanitized_lower in mesh_terms_lower:
+                score = 1  # Lower priority for supplemental records
+
+            st.info(f"DEBUG: UID {mesh_id}: mesh_term='{mesh_term}', record_type='{record_type}', mesh_terms={mesh_terms}, score={score}")
+
+            if score > best_score:
+                best_score = score
+                best_match = mesh_term
+
+        if best_match:
+            st.info(f"DEBUG: Selected MeSH term '{best_match}' for '{sanitized_term}'")
+            return best_match
+
+        # Fallback: return the first valid MeSH term from a descriptor
+        for mesh_id in id_list:
+            result_for_id = summary_data.get("result", {}).get(mesh_id, {})
+            if result_for_id.get("ds_recordtype") == "descriptor":
+                mesh_term = result_for_id.get("ds_meshterms", [original_term])[0]
+                st.info(f"DEBUG: No exact match found, using first descriptor MeSH term '{mesh_term}' for UID {mesh_id}")
+                return mesh_term
+
+        # Final fallback: return original term
+        st.warning(f"No suitable MeSH term found for '{sanitized_term}', using original term")
+        return original_term
+
     except Exception as e:
         st.warning(f"MeSH lookup failed for '{original_term}', using original term. Error: {str(e)}")
         return original_term
