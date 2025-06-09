@@ -14,31 +14,52 @@ try:
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
 def get_mesh_term(term, api_key=None, email=None):
-    """Fetch MeSH term for a given keyword using ESpell"""
+    """Fetch MeSH term for a given keyword using the MeSH database."""
     if not term.strip():
         return f'"{term}"'
-    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/espell.fcgi "
+    
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
-        "db": "pubmed",
-        "term": term,
+        "db": "mesh",
+        "term": f'"{term}"[MeSH Terms]',  # Search for exact MeSH term
+        "retmax": "1",  # Limit to one result for simplicity
+        "retmode": "json",
         "tool": "streamlit_app_pubmed_finder",
         "email": email,
     }
     if api_key:
         params["api_key"] = api_key
+    
     try:
         response = requests.get(base_url, params=params, timeout=10)
         response.raise_for_status()
-        data = xmltodict.parse(response.content)
-        spell_check = data.get("eSpellResult", {})
-        mesh_heading = spell_check.get("MeshHeading", "")
-        corrected_query = spell_check.get("CorrectedQuery", "")
-        if mesh_heading:
-            return f'"{mesh_heading}"[MeSH Terms]'
-        elif corrected_query:
-            return f'"{corrected_query}"'
+        data = response.json()
+        esearch_result = data.get("esearchresult", {})
+        id_list = esearch_result.get("idlist", [])
+        
+        if id_list:
+            # If a MeSH term is found, fetch its details
+            mesh_id = id_list[0]
+            summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
+            summary_params = {
+                "db": "mesh",
+                "id": mesh_id,
+                "retmode": "json",
+                "tool": "streamlit_app_pubmed_finder",
+                "email": email,
+            }
+            if api_key:
+                summary_params["api_key"] = api_key
+            
+            summary_response = requests.get(summary_url, params=summary_params, timeout=10)
+            summary_response.raise_for_status()
+            summary_data = summary_response.json()
+            mesh_term = summary_data.get("result", {}).get(mesh_id, {}).get("name", term)
+            return f'"{mesh_term}"[MeSH Terms]'
         else:
+            # Fallback to original term if no MeSH term is found
             return f'"{term}"'
+    
     except Exception as e:
         print(f"MeSH lookup failed for '{term}': {str(e)}")
         return f'"{term}"'
