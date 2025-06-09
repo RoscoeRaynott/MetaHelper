@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 import xmltodict
 import json
-from functools import lru_cache
+
 # --- Configuration ---
 try:
     NCBI_API_KEY = st.secrets.get("NCBI_API_KEY")
@@ -13,73 +13,8 @@ try:
     EMAIL_FOR_NCBI = st.secrets.get("EMAIL_FOR_NCBI", "your_default_email@example.com")
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
-def get_mesh_uids(term, api_key=None, email=None):
-    params = {
-        "db": "mesh", "term": term, "retmode": "json", "retmax": "5",
-        "tool": "streamlit_app_mesh", "email": email
-    }
-    if api_key: params["api_key"] = api_key
-    r = requests.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", params=params)
-    r.raise_for_status()
-    return r.json()["esearchresult"]["idlist"]
+# --- Helper function _construct_clinicaltrials_query_term_string is REMOVED ---
 
-def fetch_mesh_terms(mesh_uids, api_key=None, email=None):
-    # If no MeSH UIDs are provided, return an empty list to avoid an invalid request
-    if not mesh_uids:
-        print("No MeSH UIDs provided, returning empty list.")
-        return []
-
-    # Prepare API request parameters
-    params = {
-        "db": "mesh",
-        "id": ",".join(mesh_uids),
-        "retmode": "xml",
-        "tool": "streamlit_app_mesh",
-        "email": email
-    }
-    if api_key:
-        params["api_key"] = api_key
-
-    # Make the API request
-    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-    r = requests.get(url, params=params)
-    r.raise_for_status()  # Raises an exception for HTTP errors (e.g., 4xx, 5xx)
-
-    # Debugging: Print response details to understand the issue
-    print("Response status code:", r.status_code)
-    print("Response content-type:", r.headers.get('Content-Type'))
-    print("Response content:", r.text)
-
-    # Check if the response is XML
-    if "xml" not in r.headers.get("Content-Type", "").lower():
-        print("Unexpected content type received, returning empty list.")
-        return []
-
-    # Parse the XML response with error handling
-    try:
-        xml = xmltodict.parse(r.content)
-    except Exception as e:
-        print("Error parsing XML:", str(e))
-        print("Response content:", r.text)
-        return []
-
-    # Extract MeSH terms from the parsed XML (adjust this based on actual XML structure)
-    terms = []
-    if xml and "MeshDescriptorSet" in xml:
-        descriptors = xml["MeshDescriptorSet"].get("MeshDescriptor", [])
-        if isinstance(descriptors, dict):  # Single descriptor case
-            descriptors = [descriptors]
-        for desc in descriptors:
-            name = desc.get("DescriptorName", {}).get("#text")
-            if name:
-                terms.append(name)
-    return terms
-
-@lru_cache(maxsize=128)
-def expand_with_mesh(term):
-    uids = get_mesh_uids(term, api_key=NCBI_API_KEY, email=EMAIL_FOR_NCBI)
-    return fetch_mesh_terms(uids, api_key=NCBI_API_KEY, email=EMAIL_FOR_NCBI) or [term]
- 
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
     # This function remains unchanged from your last working version for PubMed
@@ -88,18 +23,6 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
     if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
     if population and population.strip(): search_stages_keywords.append(population.strip())
 
-    # Expand each user input via MeSH, build OR‐joined phrases,
-    # *and* keep track of the synonym lists for later matching
-    raw_terms       = [disease, outcome, population]
-    search_stages   = []   # will hold (raw_term, [synonyms], query_string)
-    for raw in raw_terms:
-        if raw and raw.strip():
-            syns = expand_with_mesh(raw.strip())
-            # phrase‐quote each synonym
-            quoted = [f'"{s}"' for s in syns]
-            qstr = " OR ".join(quoted)
-            search_stages.append((raw.strip(), syns, qstr))
-    
     if not search_stages_keywords:
         return [], "No search terms provided for PubMed."
 
@@ -215,41 +138,11 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
                             is_rag_candidate = True
                             break
             
-            # --- NEW: extract abstract text for matching ---
-            abstract_text = ""
-            abstract = article_data.get("MedlineCitation", {}) \
-                                   .get("Article", {}) \
-                                   .get("Abstract", {}) \
-                                   .get("AbstractText", [])
-            if isinstance(abstract, list):
-                abstract_text = " ".join([p.get("#text", "") if isinstance(p, dict) else str(p)
-                                           for p in abstract])
-            elif isinstance(abstract, dict):
-                abstract_text = abstract.get("#text", "")
-
-           # --- NEW: find which term/synonym actually matched ---
-            matched = None
-            for raw, syns, _ in search_stages:
-                # check raw first
-                if raw.lower() in title.lower() or raw.lower() in abstract_text.lower():
-                    matched = raw
-                    break
-                # then check each synonym
-                for s in syns:
-                    if s.lower() in title.lower() or s.lower() in abstract_text.lower():
-                        matched = s
-                        break
-                if matched:
-                    break
-            if matched is None:
-                matched = raw_terms[0]   # or “Unknown” / fallback
-
             pubmed_results_list.append({
-                "title":          title,
-                "link":           pmc_link_url if is_rag_candidate else pubmed_link_url,
+                "title": title, 
+                "link": pmc_link_url if is_rag_candidate else pubmed_link_url,
                 "is_rag_candidate": is_rag_candidate,
-                "source_type":    "PubMed Central Article" if is_rag_candidate else "PubMed Abstract",
-                "matched_term":   matched,              # ← new field
+                "source_type": "PubMed Central Article" if is_rag_candidate else "PubMed Abstract"
             })
         return pubmed_results_list, f"PubMed: {' -> '.join(processed_query_description_parts)} (Fetched {len(pubmed_results_list)} details)"
     except Exception as e:
@@ -505,12 +398,10 @@ if st.sidebar.button("Search"):
         if pubmed_results:
             st.write(f"Found {len(pubmed_results)} PubMed/PMC items:")
             for res in pubmed_results:
-                tag = "✅" if res["is_rag_candidate"] else "⚠️"
-                st.markdown(
-                    f"{tag} **[{res['title']}]({res['link']})** – "
-                    f"*{res['source_type']}*  \n"
-                    f"Matched on: **{res['matched_term']}**"
-                )
+                if res.get("is_rag_candidate"):
+                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
+                else:
+                    st.markdown(f"⚠️ [{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
                 st.divider()
         else:
             st.write("No results from PubMed based on the criteria or an error occurred during search.")
