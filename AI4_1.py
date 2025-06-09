@@ -48,7 +48,7 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
         response.raise_for_status()
         data = response.json()
         id_list = data.get("esearchresult", {}).get("idlist", [])
-        
+        print(id_list)
         if id_list:
             # Fetch ESummary for all UIDs
             summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
