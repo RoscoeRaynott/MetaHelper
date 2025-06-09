@@ -490,6 +490,7 @@ if EMAIL_FOR_NCBI == "your_default_email@example.com" or not EMAIL_FOR_NCBI:
      st.sidebar.error("NCBI Email not set in secrets. Update .streamlit/secrets.toml")
 
 if st.sidebar.button("Search"):
+    print(get_mesh_term_for_ct("Type 2 diabetes", email="your.email@example.com"))
     # Use the UI variable names directly for clarity when passing to functions
     if not (disease_input_ui or outcome_input_ui or population_input_ui): # Check if at least one main keyword is provided
         st.error("Please fill in at least one of: Disease, Outcome, or Target Population.")
