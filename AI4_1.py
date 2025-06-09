@@ -21,8 +21,8 @@ def get_mesh_term(term, api_key=None, email=None):
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     params = {
         "db": "mesh",
-        "term": f'"{term}"[MeSH Terms]',  # Search for exact MeSH term
-        "retmax": "1",  # Limit to one result for simplicity
+        "term": f'"{term}"[MeSH Terms]',
+        "retmax": "1",
         "retmode": "json",
         "tool": "streamlit_app_pubmed_finder",
         "email": email,
@@ -38,7 +38,6 @@ def get_mesh_term(term, api_key=None, email=None):
         id_list = esearch_result.get("idlist", [])
         
         if id_list:
-            # If a MeSH term is found, fetch its details
             mesh_id = id_list[0]
             summary_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
             summary_params = {
@@ -57,8 +56,11 @@ def get_mesh_term(term, api_key=None, email=None):
             mesh_term = summary_data.get("result", {}).get(mesh_id, {}).get("name", term)
             return f'"{mesh_term}"[MeSH Terms]'
         else:
-            # Fallback to original term if no MeSH term is found
             return f'"{term}"'
+    
+    except Exception as e:
+        st.warning(f"MeSH lookup failed for '{term}': {str(e)}")
+        return f'"{term}"'
     
     except Exception as e:
         print(f"MeSH lookup failed for '{term}': {str(e)}")
@@ -66,143 +68,141 @@ def get_mesh_term(term, api_key=None, email=None):
 
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
-    # Process inputs into MeSH terms
-    disease_mesh = get_mesh_term(disease.strip(), NCBI_API_KEY, EMAIL_FOR_NCBI) if disease else None
-    outcome_mesh = get_mesh_term(outcome.strip(), NCBI_API_KEY, EMAIL_FOR_NCBI) if outcome else None
-    population_mesh = get_mesh_term(population.strip(), NCBI_API_KEY, EMAIL_FOR_NCBI) if population else None
+    # Process inputs into MeSH terms or raw terms
+    def process_term(term):
+        if not term:
+            return None
+        mesh_term = get_mesh_term(term.strip(), NCBI_API_KEY, EMAIL_FOR_NCBI)
+        # If MeSH term is just the original term in quotes, also try [All Fields]
+        if mesh_term == f'"{term.strip()}"':
+            return f'({mesh_term} OR "{term.strip()}"[All Fields])'
+        return mesh_term
 
-    search_stages_keywords = []
-    if disease_mesh: search_stages_keywords.append(disease_mesh)
-    if outcome_mesh: search_stages_keywords.append(outcome_mesh)
-    if population_mesh: search_stages_keywords.append(population_mesh)
+    disease_term = process_term(disease)
+    outcome_term = process_term(outcome)
+    population_term = process_term(population)
 
-    if not search_stages_keywords:
+    # Collect non-empty search terms
+    search_terms = [t for t in [disease_term, outcome_term, population_term] if t]
+    if not search_terms:
         return [], "No search terms provided for PubMed."
 
+    # Study type filter
     study_type_query_segment = ""
     if study_type_selection == "Clinical Trials":
         study_type_query_segment = '("clinical trial"[Publication Type] OR "randomized controlled trial"[Publication Type])'
     elif study_type_selection == "Observational Studies":
         study_type_query_segment = '("observational study"[Publication Type] OR "cohort study"[All Fields] OR "case-control study"[All Fields])'
+    if study_type_query_segment:
+        search_terms.append(study_type_query_segment)
+
+    # Construct final query: use AND for essential terms, but allow flexibility
+    final_query = " AND ".join(f"({term})" for term in search_terms)
+    st.info(f"PubMed Final Query: {final_query}")
 
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
-    current_webenv = None
-    current_query_key = None
-    final_id_list = []
-    processed_query_description_parts = []
-
-    final_query = " AND ".join(search_stages_keywords + [study_type_query_segment] if study_type_query_segment else search_stages_keywords)
-    st.info(f"PubMed Final Query: {final_query}")
-    for i, keyword_stage_term in enumerate(search_stages_keywords):
-        current_stage_search_query = ""
-        if study_type_query_segment:
-            current_stage_search_query = f"{keyword_stage_term} AND ({study_type_query_segment})"
-        else:
-            current_stage_search_query = keyword_stage_term
-        
-        description_keyword_display = keyword_stage_term
-        processed_query_description_parts.append(f"Term: '{description_keyword_display}'")
-        if i == 0 and study_type_query_segment:
-             processed_query_description_parts.append(f"Study Filter: {study_type_selection}")
-
-        esearch_params = {
-            "db": "pubmed",
-            "retmax": str(max_results * 5 if i < len(search_stages_keywords) - 1 else max_results),
-            "usehistory": "y", "retmode": "json",
-            "tool": "streamlit_app_pubmed_finder", "email": EMAIL_FOR_NCBI
-        }
-        if NCBI_API_KEY: esearch_params["api_key"] = NCBI_API_KEY
-
-        if current_webenv and current_query_key:
-            esearch_params["term"] = f"#{current_query_key} AND {current_stage_search_query}"
-            esearch_params["WebEnv"] = current_webenv
-        else:
-            esearch_params["term"] = current_stage_search_query
-        
-        try:
-            response = requests.get(f"{base_url}esearch.fcgi", params=esearch_params, timeout=20)
-            response.raise_for_status()
-            esearch_data = response.json()
-            stage_id_list = esearch_data.get("esearchresult", {}).get("idlist", [])
-            if not stage_id_list:
-                return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (No results at this step)"
-            final_id_list = stage_id_list
-            current_webenv = esearch_data.get("esearchresult", {}).get("webenv")
-            current_query_key = esearch_data.get("esearchresult", {}).get("querykey")
-            if not current_webenv or not current_query_key:
-                return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (Error retrieving history)"
-        except requests.exceptions.HTTPError as http_err:
-            error_message = f"HTTP error ({http_err.response.status_code if http_err.response else 'N/A'}) at PubMed stage {i+1}"
-            if hasattr(http_err, 'response') and http_err.response is not None and http_err.response.status_code == 429: 
-                error_message += " (Too Many Requests)"
-            return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> {error_message}"
-        except Exception as e:
-            return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> Error at stage {i+1}: {str(e)}"
-
-    if not final_id_list:
-        return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (No results after all stages)"
-
-    final_id_list_for_efetch = final_id_list[:max_results]
-    
-    efetch_params = {
-        "db": "pubmed", "retmode": "xml", "rettype": "abstract",
-        "id": ",".join(final_id_list_for_efetch),
-        "tool": "streamlit_app_pubmed_finder", "email": EMAIL_FOR_NCBI
+    esearch_params = {
+        "db": "pubmed",
+        "term": final_query,
+        "retmax": str(max_results),
+        "retmode": "json",
+        "usehistory": "y",
+        "tool": "streamlit_app_pubmed_finder",
+        "email": EMAIL_FOR_NCBI,
     }
-    if NCBI_API_KEY: efetch_params["api_key"] = NCBI_API_KEY
+    if NCBI_API_KEY:
+        esearch_params["api_key"] = NCBI_API_KEY
 
-    pubmed_results_list = []
     try:
+        response = requests.get(f"{base_url}esearch.fcgi", params=esearch_params, timeout=20)
+        response.raise_for_status()
+        esearch_data = response.json()
+        id_list = esearch_data.get("esearchresult", {}).get("idlist", [])
+        webenv = esearch_data.get("esearchresult", {}).get("webenv")
+        query_key = esearch_data.get("esearchresult", {}).get("querykey")
+
+        if not id_list:
+            st.warning(f"No PubMed results for query: {final_query}")
+            return [], f"PubMed: No results for query: {final_query}"
+
+        # Fetch article details
+        efetch_params = {
+            "db": "pubmed",
+            "retmode": "xml",
+            "rettype": "abstract",
+            "id": ",".join(id_list[:max_results]),
+            "tool": "streamlit_app_pubmed_finder",
+            "email": EMAIL_FOR_NCBI,
+            "WebEnv": webenv,
+            "query_key": query_key,
+        }
+        if NCBI_API_KEY:
+            efetch_params["api_key"] = NCBI_API_KEY
+
+        pubmed_results_list = []
         summary_response = requests.get(f"{base_url}efetch.fcgi", params=efetch_params, timeout=25)
         summary_response.raise_for_status()
         articles_dict = xmltodict.parse(summary_response.content)
         pubmed_articles_container = articles_dict.get("PubmedArticleSet", {})
         if not pubmed_articles_container:
-             return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No PubmedArticleSet)"
+            return [], f"PubMed: No PubmedArticleSet for query: {final_query}"
+
         articles_list_xml = pubmed_articles_container.get("PubmedArticle", [])
-        if not isinstance(articles_list_xml, list): articles_list_xml = [articles_list_xml] if articles_list_xml else []
-        if not articles_list_xml:
-            return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No article details)"
+        if not isinstance(articles_list_xml, list):
+            articles_list_xml = [articles_list_xml] if articles_list_xml else []
 
         for article_data in articles_list_xml:
-            if not isinstance(article_data, dict): continue
+            if not isinstance(article_data, dict):
+                continue
             medline_citation = article_data.get("MedlineCitation", {})
-            if not medline_citation: continue 
+            if not medline_citation:
+                continue
             article_info = medline_citation.get("Article", {})
-            if not article_info: continue
+            if not article_info:
+                continue
             pmid_obj = medline_citation.get("PMID", {})
             pmid = pmid_obj.get("#text", "N/A") if isinstance(pmid_obj, dict) else pmid_obj if isinstance(pmid_obj, str) else "N/A"
             title_obj = article_info.get("ArticleTitle", "No title available")
-            if isinstance(title_obj, dict): title = title_obj.get("#text", "No title available")
-            elif isinstance(title_obj, list): title = "".join(str(t.get("#text", t)) if isinstance(t, dict) else str(t) for t in title_obj)
-            else: title = str(title_obj)
+            if isinstance(title_obj, dict):
+                title = title_obj.get("#text", "No title available")
+            elif isinstance(title_obj, list):
+                title = "".join(str(t.get("#text", t)) if isinstance(t, dict) else str(t) for t in title_obj)
+            else:
+                title = str(title_obj)
 
             pubmed_link_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid != "N/A" else "#"
             pmc_link_url = None
             is_rag_candidate = False
-            
+
             pubmed_data = article_data.get("PubmedData", {})
             if pubmed_data:
                 article_id_list_xml = pubmed_data.get("ArticleIdList", {}).get("ArticleId", [])
-                if not isinstance(article_id_list_xml, list): article_id_list_xml = [article_id_list_xml]
+                if not isinstance(article_id_list_xml, list):
+                    article_id_list_xml = [article_id_list_xml]
                 for aid in article_id_list_xml:
                     if isinstance(aid, dict) and aid.get("@IdType") == "pmc":
                         pmcid = aid.get("#text")
-                        if pmcid: 
+                        if pmcid:
                             pmc_link_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
                             is_rag_candidate = True
                             break
-            
+
             pubmed_results_list.append({
-                "title": title, 
+                "title": title,
                 "link": pmc_link_url if is_rag_candidate else pubmed_link_url,
                 "is_rag_candidate": is_rag_candidate,
                 "source_type": "PubMed Central Article" if is_rag_candidate else "PubMed Abstract"
             })
-        return pubmed_results_list, f"PubMed: {' -> '.join(processed_query_description_parts)} (Fetched {len(pubmed_results_list)} details)"
-    except Exception as e:
-        return [], f"PubMed Fetch Details Error: {' -> '.join(processed_query_description_parts)} -> {str(e)}"
 
+        return pubmed_results_list, f"PubMed: Fetched {len(pubmed_results_list)} results for query: {final_query}"
+
+    except requests.exceptions.HTTPError as http_err:
+        error_message = f"HTTP error ({http_err.response.status_code if http_err.response else 'N/A'}): {http_err.response.text[:200] if http_err.response else str(http_err)}"
+        st.error(f"PubMed API Error: {error_message}")
+        return [], f"PubMed: {error_message}"
+    except Exception as e:
+        st.error(f"PubMed Search Error: {str(e)}")
+        return [], f"PubMed: Error: {str(e)}"
 
 def fetch_clinicaltrials_results(
     disease_input,    # For query.cond
