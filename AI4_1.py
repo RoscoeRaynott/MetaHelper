@@ -24,22 +24,49 @@ def get_mesh_uids(term, api_key=None, email=None):
     return r.json()["esearchresult"]["idlist"]
 
 def fetch_mesh_terms(mesh_uids, api_key=None, email=None):
+    # If no MeSH UIDs are provided, return an empty list to avoid an invalid API call
+    if not mesh_uids:
+        return []
+
+    # Prepare API request parameters
     params = {
-        "db": "mesh", "id": ",".join(mesh_uids),
-        "retmode": "xml", "tool": "streamlit_app_mesh", "email": email
+        "db": "mesh",
+        "id": ",".join(mesh_uids),
+        "retmode": "xml",
+        "tool": "streamlit_app_mesh",
+        "email": email
     }
-    if api_key: params["api_key"] = api_key
+    if api_key:
+        params["api_key"] = api_key
+
+    # Make the API request
     r = requests.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi", params=params)
-    r.raise_for_status()
-    xml = xmltodict.parse(r.content)
+    r.raise_for_status()  # Raises an exception for HTTP errors (e.g., 4xx, 5xx)
+
+    # Debugging: Print response details to diagnose the issue
+    print("Response status code:", r.status_code)
+    print("Response content-type:", r.headers.get('Content-Type'))
+    print("Response content:", r.text)
+
+    # Parse the XML response with error handling
+    try:
+        xml = xmltodict.parse(r.content)
+    except Exception as e:
+        print("Error parsing XML:", str(e))
+        print("Response content:", r.text)
+        raise  # Re-raise the exception after logging
+
+    # Extract MeSH terms from the parsed XML
     terms = set()
     for desc in xml.get("MeshDescriptorSet", {}).get("MeshDescriptor", []):
         name = desc.get("DescriptorName", {}).get("#text")
-        if name: terms.add(name)
+        if name:
+            terms.add(name)
         for concept in desc.get("ConceptList", {}).get("Concept", []):
             for term in concept.get("TermList", {}).get("Term", []):
                 txt = term.get("#text")
-                if txt: terms.add(txt)
+                if txt:
+                    terms.add(txt)
     return list(terms)
 
 @lru_cache(maxsize=128)
