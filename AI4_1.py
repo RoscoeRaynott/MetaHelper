@@ -13,15 +13,47 @@ try:
     EMAIL_FOR_NCBI = st.secrets.get("EMAIL_FOR_NCBI", "your_default_email@example.com")
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
-# --- Helper function _construct_clinicaltrials_query_term_string is REMOVED ---
+def get_mesh_term(term, api_key=None, email=None):
+    """Fetch MeSH term for a given keyword using ESpell"""
+    if not term.strip():
+        return f'"{term}"'
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/espell.fcgi "
+    params = {
+        "db": "pubmed",
+        "term": term,
+        "tool": "streamlit_app_pubmed_finder",
+        "email": email,
+    }
+    if api_key:
+        params["api_key"] = api_key
+    try:
+        response = requests.get(base_url, params=params, timeout=10)
+        response.raise_for_status()
+        data = xmltodict.parse(response.content)
+        spell_check = data.get("eSpellResult", {})
+        mesh_heading = spell_check.get("MeshHeading", "")
+        corrected_query = spell_check.get("CorrectedQuery", "")
+        if mesh_heading:
+            return f'"{mesh_heading}"[MeSH Terms]'
+        elif corrected_query:
+            return f'"{corrected_query}"'
+        else:
+            return f'"{term}"'
+    except Exception as e:
+        print(f"MeSH lookup failed for '{term}': {str(e)}")
+        return f'"{term}"'
 
 # --- Functions for Fetching Results from APIs ---
 def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
-    # This function remains unchanged from your last working version for PubMed
+    # Process inputs into MeSH terms
+    disease_mesh = get_mesh_term(disease.strip(), NCBI_API_KEY, EMAIL_FOR_NCBI) if disease else None
+    outcome_mesh = get_mesh_term(outcome.strip(), NCBI_API_KEY, EMAIL_FOR_NCBI) if outcome else None
+    population_mesh = get_mesh_term(population.strip(), NCBI_API_KEY, EMAIL_FOR_NCBI) if population else None
+
     search_stages_keywords = []
-    if disease and disease.strip(): search_stages_keywords.append(disease.strip())
-    if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
-    if population and population.strip(): search_stages_keywords.append(population.strip())
+    if disease_mesh: search_stages_keywords.append(disease_mesh)
+    if outcome_mesh: search_stages_keywords.append(outcome_mesh)
+    if population_mesh: search_stages_keywords.append(population_mesh)
 
     if not search_stages_keywords:
         return [], "No search terms provided for PubMed."
