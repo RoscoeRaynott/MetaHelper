@@ -25,6 +25,7 @@ def get_mesh_term_for_ct(term, api_key=None, email=None):
         return term
 
     original_term = term.strip()
+    sanitized_term = original_term.replace('-', ' ')
     
     # 1. CORRECTED ESearch Query: More precise search
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
