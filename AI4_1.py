@@ -2,10 +2,8 @@ import streamlit as st
 import requests
 import xmltodict
 import json
-import time
-from typing import List, Dict, Set, Tuple
 
-# --- Configuration (keep your existing config) ---
+# --- Configuration ---
 try:
     NCBI_API_KEY = st.secrets.get("NCBI_API_KEY")
     if not NCBI_API_KEY: NCBI_API_KEY = None
@@ -15,240 +13,25 @@ try:
     EMAIL_FOR_NCBI = st.secrets.get("EMAIL_FOR_NCBI", "your_default_email@example.com")
 except Exception: EMAIL_FOR_NCBI = "your_default_email@example.com"
 
-# --- NEW: MeSH Term Expansion Functions ---
+# --- Helper function _construct_clinicaltrials_query_term_string is REMOVED ---
 
-def search_mesh_terms(query_term: str, max_terms: int = 10) -> List[Dict]:
-    """
-    Search for MeSH terms using NCBI's E-utilities
-    Returns list of MeSH terms with their MeSH IDs and descriptions
-    """
-    if not query_term or not query_term.strip():
-        return []
-    
-    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
-    params = {
-        "db": "mesh",
-        "term": query_term.strip(),
-        "retmax": str(max_terms),
-        "retmode": "json",
-        "tool": "streamlit_mesh_expander",
-        "email": EMAIL_FOR_NCBI
-    }
-    
-    if NCBI_API_KEY:
-        params["api_key"] = NCBI_API_KEY
-    
-    try:
-        response = requests.get(base_url, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        mesh_ids = data.get("esearchresult", {}).get("idlist", [])
-        if not mesh_ids:
-            return []
-        
-        # Fetch detailed information for these MeSH terms
-        return fetch_mesh_details(mesh_ids[:max_terms])
-        
-    except Exception as e:
-        st.warning(f"MeSH search error for '{query_term}': {str(e)}")
-        return []
-
-def fetch_mesh_details(mesh_ids: List[str]) -> List[Dict]:
-    """
-    Fetch detailed MeSH term information including synonyms and related terms
-    """
-    if not mesh_ids:
-        return []
-    
-    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
-    params = {
-        "db": "mesh",
-        "id": ",".join(mesh_ids),
-        "retmode": "xml",
-        "tool": "streamlit_mesh_expander",
-        "email": EMAIL_FOR_NCBI
-    }
-    
-    if NCBI_API_KEY:
-        params["api_key"] = NCBI_API_KEY
-    
-    try:
-        response = requests.get(base_url, params=params, timeout=15)
-        response.raise_for_status()
-        
-        # Parse XML response
-        mesh_data = xmltodict.parse(response.content)
-        descriptor_records = mesh_data.get("DescriptorRecordSet", {}).get("DescriptorRecord", [])
-        
-        if not isinstance(descriptor_records, list):
-            descriptor_records = [descriptor_records] if descriptor_records else []
-        
-        mesh_terms = []
-        for record in descriptor_records:
-            if not isinstance(record, dict):
-                continue
-                
-            # Extract main heading
-            descriptor_name = record.get("DescriptorName", {})
-            main_heading = descriptor_name.get("String", "") if isinstance(descriptor_name, dict) else ""
-            
-            # Extract MeSH ID
-            descriptor_ui = record.get("DescriptorUI", "")
-            
-            # Extract synonyms/entry terms
-            synonyms = []
-            concept_list = record.get("ConceptList", {}).get("Concept", [])
-            if not isinstance(concept_list, list):
-                concept_list = [concept_list] if concept_list else []
-            
-            for concept in concept_list:
-                if isinstance(concept, dict):
-                    term_list = concept.get("TermList", {}).get("Term", [])
-                    if not isinstance(term_list, list):
-                        term_list = [term_list] if term_list else []
-                    
-                    for term in term_list:
-                        if isinstance(term, dict):
-                            term_string = term.get("String", "")
-                            if term_string and term_string.lower() != main_heading.lower():
-                                synonyms.append(term_string)
-            
-            if main_heading:
-                mesh_terms.append({
-                    "main_heading": main_heading,
-                    "mesh_id": descriptor_ui,
-                    "synonyms": list(set(synonyms))  # Remove duplicates
-                })
-        
-        return mesh_terms
-        
-    except Exception as e:
-        st.warning(f"MeSH details fetch error: {str(e)}")
-        return []
-
-def expand_search_terms_with_mesh(original_term: str, max_mesh_terms: int = 5, max_synonyms_per_term: int = 3) -> Tuple[List[str], str]:
-    """
-    Expand a search term using MeSH vocabulary
-    Returns: (expanded_terms_list, expansion_summary)
-    """
-    if not original_term or not original_term.strip():
-        return [original_term], "No expansion (empty term)"
-    
-    # Start with original term
-    expanded_terms = [original_term.strip()]
-    expansion_details = []
-    
-    # Search MeSH
-    mesh_terms = search_mesh_terms(original_term, max_mesh_terms)
-    
-    if mesh_terms:
-        for mesh_term in mesh_terms:
-            main_heading = mesh_term.get("main_heading", "")
-            synonyms = mesh_term.get("synonyms", [])
-            mesh_id = mesh_term.get("mesh_id", "")
-            
-            # Add main MeSH heading if different from original
-            if main_heading and main_heading.lower() != original_term.lower().strip():
-                expanded_terms.append(main_heading)
-            
-            # Add selected synonyms
-            for synonym in synonyms[:max_synonyms_per_term]:
-                if synonym.lower() not in [term.lower() for term in expanded_terms]:
-                    expanded_terms.append(synonym)
-            
-            expansion_details.append(f"MeSH: {main_heading} ({mesh_id})")
-    
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_expanded_terms = []
-    for term in expanded_terms:
-        if term.lower() not in seen:
-            seen.add(term.lower())
-            unique_expanded_terms.append(term)
-    
-    expansion_summary = f"Original: '{original_term}' → {len(unique_expanded_terms)} terms"
-    if expansion_details:
-        expansion_summary += f" (Found: {', '.join(expansion_details[:2])}{'...' if len(expansion_details) > 2 else ''})"
-    
-    return unique_expanded_terms, expansion_summary
-
-def build_expanded_query(terms_list: List[str], operator: str = "OR") -> str:
-    """
-    Build a query string from expanded terms using specified operator
-    """
-    if not terms_list:
-        return ""
-    
-    # Clean and quote terms that contain spaces or special characters
-    cleaned_terms = []
-    for term in terms_list:
-        term = term.strip()
-        if not term:
-            continue
-        # Quote terms with spaces or special characters
-        if " " in term or any(char in term for char in ['"', '(', ')', '[', ']']):
-            cleaned_terms.append(f'"{term}"')
-        else:
-            cleaned_terms.append(term)
-    
-    if len(cleaned_terms) == 1:
-        return cleaned_terms[0]
-    
-    return f"({f' {operator} '.join(cleaned_terms)})"
-
-# --- UPDATED: Enhanced PubMed Function with MeSH Expansion ---
-
-def fetch_pubmed_results_with_mesh(disease, outcome, population, study_type_selection, max_results=10, enable_mesh_expansion=True):
-    """
-    Enhanced PubMed search with MeSH term expansion
-    """
+# --- Functions for Fetching Results from APIs ---
+def fetch_pubmed_results(disease, outcome, population, study_type_selection, max_results=10):
+    # This function remains unchanged from your last working version for PubMed
     search_stages_keywords = []
-    expansion_summaries = []
-    
-    # Process each input with optional MeSH expansion
-    if disease and disease.strip():
-        if enable_mesh_expansion:
-            expanded_disease_terms, disease_summary = expand_search_terms_with_mesh(disease.strip())
-            disease_query = build_expanded_query(expanded_disease_terms)
-            expansion_summaries.append(f"Disease: {disease_summary}")
-        else:
-            disease_query = disease.strip()
-        search_stages_keywords.append(disease_query)
-    
-    if outcome and outcome.strip():
-        if enable_mesh_expansion:
-            expanded_outcome_terms, outcome_summary = expand_search_terms_with_mesh(outcome.strip())
-            outcome_query = build_expanded_query(expanded_outcome_terms)
-            expansion_summaries.append(f"Outcome: {outcome_summary}")
-        else:
-            outcome_query = outcome.strip()
-        search_stages_keywords.append(outcome_query)
-    
-    if population and population.strip():
-        if enable_mesh_expansion:
-            expanded_population_terms, population_summary = expand_search_terms_with_mesh(population.strip())
-            population_query = build_expanded_query(expanded_population_terms)
-            expansion_summaries.append(f"Population: {population_summary}")
-        else:
-            population_query = population.strip()
-        search_stages_keywords.append(population_query)
+    if disease and disease.strip(): search_stages_keywords.append(disease.strip())
+    if outcome and outcome.strip(): search_stages_keywords.append(outcome.strip())
+    if population and population.strip(): search_stages_keywords.append(population.strip())
 
     if not search_stages_keywords:
-        return [], "No search terms provided for PubMed.", []
+        return [], "No search terms provided for PubMed."
 
-    # Display expansion information
-    if expansion_summaries:
-        st.info("MeSH Expansion Applied:\n" + "\n".join(expansion_summaries))
-
-    # Build study type filter
     study_type_query_segment = ""
     if study_type_selection == "Clinical Trials":
         study_type_query_segment = '("clinical trial"[Publication Type] OR "randomized controlled trial"[Publication Type])'
     elif study_type_selection == "Observational Studies":
         study_type_query_segment = '("observational study"[Publication Type] OR "cohort study"[All Fields] OR "case-control study"[All Fields])'
 
-    # Continue with existing PubMed search logic...
     base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
     current_webenv = None
     current_query_key = None
@@ -262,7 +45,7 @@ def fetch_pubmed_results_with_mesh(disease, outcome, population, study_type_sele
         else:
             current_stage_search_query = keyword_stage_term
         
-        description_keyword_display = keyword_stage_term[:100] + "..." if len(keyword_stage_term) > 100 else keyword_stage_term
+        description_keyword_display = keyword_stage_term
         processed_query_description_parts.append(f"Term: '{description_keyword_display}'")
         if i == 0 and study_type_query_segment:
              processed_query_description_parts.append(f"Study Filter: {study_type_selection}")
@@ -271,7 +54,7 @@ def fetch_pubmed_results_with_mesh(disease, outcome, population, study_type_sele
             "db": "pubmed",
             "retmax": str(max_results * 5 if i < len(search_stages_keywords) - 1 else max_results),
             "usehistory": "y", "retmode": "json",
-            "tool": "streamlit_app_pubmed_finder_mesh", "email": EMAIL_FOR_NCBI
+            "tool": "streamlit_app_pubmed_finder", "email": EMAIL_FOR_NCBI
         }
         if NCBI_API_KEY: esearch_params["api_key"] = NCBI_API_KEY
 
@@ -287,33 +70,29 @@ def fetch_pubmed_results_with_mesh(disease, outcome, population, study_type_sele
             esearch_data = response.json()
             stage_id_list = esearch_data.get("esearchresult", {}).get("idlist", [])
             if not stage_id_list:
-                return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (No results at this step)", expansion_summaries
+                return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (No results at this step)"
             final_id_list = stage_id_list
             current_webenv = esearch_data.get("esearchresult", {}).get("webenv")
             current_query_key = esearch_data.get("esearchresult", {}).get("querykey")
             if not current_webenv or not current_query_key:
-                return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (Error retrieving history)", expansion_summaries
-            
-            # Add small delay to respect API rate limits
-            time.sleep(0.1)
-            
+                return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (Error retrieving history)"
         except requests.exceptions.HTTPError as http_err:
             error_message = f"HTTP error ({http_err.response.status_code if http_err.response else 'N/A'}) at PubMed stage {i+1}"
             if hasattr(http_err, 'response') and http_err.response is not None and http_err.response.status_code == 429: 
                 error_message += " (Too Many Requests)"
-            return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> {error_message}", expansion_summaries
+            return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> {error_message}"
         except Exception as e:
-            return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> Error at stage {i+1}: {str(e)}", expansion_summaries
+            return [], f"PubMed: {' -> '.join(processed_query_description_parts)} -> Error at stage {i+1}: {str(e)}"
 
     if not final_id_list:
-        return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (No results after all stages)", expansion_summaries
+        return [], f"PubMed: {' -> '.join(processed_query_description_parts)} (No results after all stages)"
 
     final_id_list_for_efetch = final_id_list[:max_results]
     
     efetch_params = {
         "db": "pubmed", "retmode": "xml", "rettype": "abstract",
         "id": ",".join(final_id_list_for_efetch),
-        "tool": "streamlit_app_pubmed_finder_mesh", "email": EMAIL_FOR_NCBI
+        "tool": "streamlit_app_pubmed_finder", "email": EMAIL_FOR_NCBI
     }
     if NCBI_API_KEY: efetch_params["api_key"] = NCBI_API_KEY
 
@@ -324,11 +103,11 @@ def fetch_pubmed_results_with_mesh(disease, outcome, population, study_type_sele
         articles_dict = xmltodict.parse(summary_response.content)
         pubmed_articles_container = articles_dict.get("PubmedArticleSet", {})
         if not pubmed_articles_container:
-             return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No PubmedArticleSet)", expansion_summaries
+             return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No PubmedArticleSet)"
         articles_list_xml = pubmed_articles_container.get("PubmedArticle", [])
         if not isinstance(articles_list_xml, list): articles_list_xml = [articles_list_xml] if articles_list_xml else []
         if not articles_list_xml:
-            return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No article details)", expansion_summaries
+            return [], f"PubMed Fetch Details: {' -> '.join(processed_query_description_parts)} (No article details)"
 
         for article_data in articles_list_xml:
             if not isinstance(article_data, dict): continue
@@ -365,79 +144,60 @@ def fetch_pubmed_results_with_mesh(disease, outcome, population, study_type_sele
                 "is_rag_candidate": is_rag_candidate,
                 "source_type": "PubMed Central Article" if is_rag_candidate else "PubMed Abstract"
             })
-        return pubmed_results_list, f"PubMed: {' -> '.join(processed_query_description_parts)} (Fetched {len(pubmed_results_list)} details)", expansion_summaries
+        return pubmed_results_list, f"PubMed: {' -> '.join(processed_query_description_parts)} (Fetched {len(pubmed_results_list)} details)"
     except Exception as e:
-        return [], f"PubMed Fetch Details Error: {' -> '.join(processed_query_description_parts)} -> {str(e)}", expansion_summaries
+        return [], f"PubMed Fetch Details Error: {' -> '.join(processed_query_description_parts)} -> {str(e)}"
 
-# --- UPDATED: Enhanced ClinicalTrials Function with MeSH Expansion ---
 
-def fetch_clinicaltrials_results_with_mesh(
-    disease_input,    
-    outcome_input,    
-    population_input, 
-    std_age_adv=None, 
-    location_country_adv=None, 
-    gender_adv=None,  
-    study_type_from_sidebar=None, 
+def fetch_clinicaltrials_results(
+    disease_input,    # For query.cond
+    outcome_input,    # For query.outc
+    population_input, # For query.term (the single free text)
+    std_age_adv=None, # For query.patient.age
+    location_country_adv=None, # For query.location.country
+    gender_adv=None,  # For query.patient.gender
+    study_type_from_sidebar=None, # For query.studyType
+    # Post-fetch filters:
     masking_type_post_filter=None,
     intervention_model_post_filter=None,
-    max_results=10,
-    enable_mesh_expansion=True  # NEW parameter
+    # General:
+    max_results=10
 ):
     """
-    Enhanced ClinicalTrials.gov search with optional MeSH term expansion
+    Fetches results from ClinicalTrials.gov API v2 using specific query parameters
+    for structured data and query.term for the single free-text population input.
+    Filters for studies "no longer recruiting" and applies post-fetch filters.
     """
+
     base_url = "https://clinicaltrials.gov/api/v2/studies"
     
     params = {
         "format": "json",
-        "pageSize": str(max_results * 2),
+        "pageSize": str(max_results * 2), # Fetch more for post-filtering
     }
-    
-    expansion_summaries = []
-    
-    # 1. Handle population input with optional MeSH expansion for query.term
+
+    # 1. Add the single free-text input (population) to query.term
     if population_input and population_input.strip():
-        if enable_mesh_expansion:
-            expanded_population_terms, population_summary = expand_search_terms_with_mesh(population_input.strip())
-            # For ClinicalTrials.gov, we join terms with spaces (it handles OR logic internally)
-            population_query = " ".join(expanded_population_terms)
-            expansion_summaries.append(f"Population: {population_summary}")
-        else:
-            population_query = population_input.strip()
-        params["query.term"] = population_query
+        params["query.term"] = population_input.strip() 
+    # If population_input is empty, query.term will not be sent, 
+    # and the search will rely solely on the other specific query.* parameters.
 
-    # 2. Handle disease input with optional MeSH expansion for query.cond
+    # 2. Add specific query parameters for structured inputs
     if disease_input and disease_input.strip():
-        if enable_mesh_expansion:
-            expanded_disease_terms, disease_summary = expand_search_terms_with_mesh(disease_input.strip())
-            # ClinicalTrials.gov condition field - join with spaces
-            disease_query = " ".join(expanded_disease_terms)
-            expansion_summaries.append(f"Disease: {disease_summary}")
-        else:
-            disease_query = disease_input.strip()
-        params["query.cond"] = disease_query
+        params["query.cond"] = disease_input.strip() # Condition/Disease keywords
 
-    # 3. Handle outcome input with optional MeSH expansion for query.outc
     if outcome_input and outcome_input.strip():
-        if enable_mesh_expansion:
-            expanded_outcome_terms, outcome_summary = expand_search_terms_with_mesh(outcome_input.strip())
-            # ClinicalTrials.gov outcome field - join with spaces
-            outcome_query = " ".join(expanded_outcome_terms)
-            expansion_summaries.append(f"Outcome: {outcome_summary}")
-        else:
-            outcome_query = outcome_input.strip()
-        params["query.outc"] = outcome_query
-
-    # Display expansion information for ClinicalTrials.gov
-    if expansion_summaries:
-        st.info("ClinicalTrials.gov MeSH Expansion Applied:\n" + "\n".join(expansion_summaries))
+        params["query.outc"] = outcome_input.strip() # Outcome Measure keywords
 
     # Study Type (Interventional or Observational based on sidebar)
+    # API expects: INTERVENTIONAL, OBSERVATIONAL, etc. (typically uppercase)
     if study_type_from_sidebar == "Clinical Trials":
         params["filter.advanced"] = "AREA[StudyType]INTERVENTIONAL"
     elif study_type_from_sidebar == "Observational Studies":
         params["filter.advanced"] = "AREA[StudyType]OBSERVATIONAL"
+    # If "All Study Types" or other, this parameter might be omitted or set to a default
+    # For now, if not Clinical Trials or Observational, it won't be added, making it broader.
+    # Or, you could default: else: params["query.studyType"] = "INTERVENTIONAL"
 
     # Overall Status: "No longer looking for participants"
     no_longer_recruiting_statuses = [
@@ -446,7 +206,7 @@ def fetch_clinicaltrials_results_with_mesh(
     ]
     params["filter.overallStatus"] = ",".join(no_longer_recruiting_statuses)
     
-    # Advanced Filters from user input (unchanged)
+    # Advanced Filters from user input
     if std_age_adv and std_age_adv != "Any":
         if std_age_adv == "CHILD":
             age_filter = "AREA[MinimumAge]RANGE[MIN, 17 years] AND AREA[MaximumAge]RANGE[MIN, 17 years]"
@@ -460,6 +220,7 @@ def fetch_clinicaltrials_results_with_mesh(
             params["filter.advanced"] = age_filter
     
     if gender_adv and gender_adv != "Any":
+    # API expects 'ALL', 'FEMALE', 'MALE' in AREA[Sex]
         sex_value = "ALL" if gender_adv.upper() == "ALL" else gender_adv.upper()
         gender_filter = f"AREA[Sex]{sex_value}"
         if "filter.advanced" in params:
@@ -472,7 +233,6 @@ def fetch_clinicaltrials_results_with_mesh(
 
     st.info(f"ClinicalTrials.gov API Request Params: {json.dumps(params, indent=2)}")
 
-    # Continue with existing ClinicalTrials.gov logic...
     ct_results_list = []
     try:
         response = requests.get(base_url, params=params, timeout=25)
@@ -486,7 +246,7 @@ def fetch_clinicaltrials_results_with_mesh(
         if not studies_from_api:
             return []
 
-        # --- Post-fetch filtering (unchanged from your original) ---
+        # --- Post-fetch filtering ---
         temp_list_after_results_section = []
         for study_container in studies_from_api:
             if study_container.get("resultsSection"):
@@ -563,109 +323,133 @@ def fetch_clinicaltrials_results_with_mesh(
     
     return ct_results_list
 
-# --- UPDATED: Enhanced Streamlit UI ---
 
-def main():
-    st.set_page_config(layout="wide")
-    st.title("RAG-Ready Medical Research Finder with MeSH Expansion")
-    st.markdown("Finds **PubMed Central articles** and **Clinical Trial records** with optional **MeSH vocabulary expansion** for comprehensive search results.")
+# --- List of Other Databases ---
+OTHER_DATABASES = [
+    {"name": "Europe PMC", "url": "https://europepmc.org/"},
+    {"name": "Lens.org", "url": "https://www.lens.org/"},
+    {"name": "Directory of Open Access Journals (DOAJ)", "url": "https://doaj.org/"},
+    {"name": "Google Scholar", "url": "https://scholar.google.com/"},
+    {"name": "medRxiv (Preprint Server)", "url": "https://www.medrxiv.org/"},
+    {"name": "bioRxiv (Preprint Server)", "url": "https://www.biorxiv.org/"}
+]
 
-    st.sidebar.header("Search Parameters")
+# --- Streamlit App UI ---
+st.set_page_config(layout="wide")
+st.title("RAG-Ready Medical Research Finder")
+st.markdown("Finds **PubMed Central articles** and **Clinical Trial records (with results available)** suitable for RAG pipelines.")
+
+st.sidebar.header("Search Parameters")
+# Main inputs that will be used for specific API fields or general keyword
+disease_input_ui = st.sidebar.text_input("Disease/Condition (for CT.gov: query.cond)", placeholder="e.g., Type 2 Diabetes")
+outcome_input_ui = st.sidebar.text_input("Outcome of Interest (for CT.gov: query.outc)", placeholder="e.g., blood glucose control")
+population_input_ui = st.sidebar.text_input("Target Population / Free Text (for CT.gov: query.term)", placeholder="e.g., elderly patients") # This is the single free text
+
+study_type_ui = st.sidebar.selectbox( # Used for PubMed and CT.gov query.studyType
+    "Study Type",
+    ["Clinical Trials", "Observational Studies", "All Study Types (PubMed only)"],
+    index=0
+)
+max_results_per_source = st.sidebar.slider("Max results per source", 5, 50, 10) # Increased max for slider
+
+st.sidebar.markdown("---")
+with st.sidebar.expander("Advanced ClinicalTrials.gov Filters", expanded=False):
+    ct_std_age_options=["Any", "CHILD","ADULT","OLDER_ADULT"] # Values for query.patient.age
+    ct_std_age_ui =st.selectbox("Standard Age Group", options=ct_std_age_options, index=0)
     
-    # MeSH Expansion Toggle
-    enable_mesh = st.sidebar.checkbox("Enable MeSH Term Expansion", value=True, help="Automatically expand search terms using Medical Subject Headings (MeSH) vocabulary")
+    country_options = ["Any", "United States", "Canada", "United Kingdom", "Germany", "France", "China", "India", "Japan", "Australia"]
+    ct_location_country_ui = st.selectbox("Location Country", options=country_options, index=0)
+
+    ct_gender_options = ["Any", "All", "Female", "Male"] # "All" will map to "BOTH" for API
+    ct_gender_ui = st.selectbox("Gender", options=ct_gender_options, index=0)
     
-    # Main inputs
-    disease_input_ui = st.sidebar.text_input("Disease/Condition", placeholder="e.g., Type 2 Diabetes")
-    outcome_input_ui = st.sidebar.text_input("Outcome of Interest", placeholder="e.g., blood glucose control")
-    population_input_ui = st.sidebar.text_input("Target Population", placeholder="e.g., elderly patients")
-
-    study_type_ui = st.sidebar.selectbox(
-        "Study Type",
-        ["Clinical Trials", "Observational Studies", "All Study Types (PubMed only)"],
-        index=0
-    )
-    max_results_per_source = st.sidebar.slider("Max results per source", 5, 50, 10)
-
-    # MeSH Expansion Settings
-    if enable_mesh:
-        with st.sidebar.expander("MeSH Expansion Settings", expanded=False):
-            max_mesh_terms = st.slider("Max MeSH terms per search term", 1, 10, 5)
-            max_synonyms = st.slider("Max synonyms per MeSH term", 1, 5, 3)
+    ct_masking_options = ["Any", "None", "Single", "Double", "Triple", "Quadruple"] 
+    ct_masking_ui = st.selectbox("Masking (post-filtered)", options=ct_masking_options, index=0)
     
-    # [Keep your existing advanced filters and other UI elements...]
-    st.sidebar.markdown("---")
-    with st.sidebar.expander("Advanced ClinicalTrials.gov Filters", expanded=False):
-        ct_std_age_options=["Any", "CHILD","ADULT","OLDER_ADULT"]
-        ct_std_age_ui =st.selectbox("Standard Age Group", options=ct_std_age_options, index=0)
-        
-        country_options = ["Any", "United States", "Canada", "United Kingdom", "Germany", "France", "China", "India", "Japan", "Australia"]
-        ct_location_country_ui = st.selectbox("Location Country", options=country_options, index=0)
+    ct_intervention_model_options = [
+        "Any", "Single Group Assignment", "Parallel Assignment", 
+        "Crossover Assignment", "Factorial Assignment", "Sequential Assignment"
+    ]
+    ct_intervention_model_ui = st.selectbox("Intervention Model (post-filtered)", options=ct_intervention_model_options, index=0)
 
-        ct_gender_options = ["Any", "All", "Female", "Male"]
-        ct_gender_ui = st.selectbox("Gender", options=ct_gender_options, index=0)
-        
-        ct_masking_options = ["Any", "None", "Single", "Double", "Triple", "Quadruple"] 
-        ct_masking_ui = st.selectbox("Masking (post-filtered)", options=ct_masking_options, index=0)
-        
-        ct_intervention_model_options = [
-            "Any", "Single Group Assignment", "Parallel Assignment", 
-            "Crossover Assignment", "Factorial Assignment", "Sequential Assignment"
-        ]
-        ct_intervention_model_ui = st.selectbox("Intervention Model (post-filtered)", options=ct_intervention_model_options, index=0)
-    
-    # API Key status
-    if NCBI_API_KEY: 
-        st.sidebar.success("NCBI API Key loaded.")
-    else: 
-        st.sidebar.warning("NCBI API Key not loaded. MeSH expansion may be rate-limited.")
+# API Key and Email status display
+if NCBI_API_KEY: st.sidebar.success("NCBI API Key loaded.")
+else: st.sidebar.warning("NCBI API Key not loaded. Consider adding to secrets.")
+if EMAIL_FOR_NCBI == "your_default_email@example.com" or not EMAIL_FOR_NCBI:
+     st.sidebar.error("NCBI Email not set in secrets. Update .streamlit/secrets.toml")
 
-    # Search button
-    if st.sidebar.button("Search"):
-        if not (disease_input_ui or outcome_input_ui or population_input_ui):
-            st.error("Please fill in at least one search field.")
-        else:
-            # --- PubMed Search with MeSH ---
-            st.header("PubMed / PubMed Central Results")
-            pubmed_status_message = st.empty()
-            
-            with st.spinner("Performing PubMed search with MeSH expansion..."):
-                pubmed_status_message.info("Expanding search terms using MeSH vocabulary..." if enable_mesh else "Searching PubMed...")
-                
-                pubmed_results, pubmed_query_description, expansion_info = fetch_pubmed_results_with_mesh(
-                    disease_input_ui, outcome_input_ui, population_input_ui, 
-                    study_type_ui, max_results_per_source, enable_mesh
-                )
-            
-            pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
-                
-            if pubmed_results:
-                st.write(f"Found {len(pubmed_results)} PubMed/PMC items:")
-                for res in pubmed_results:
-                    if res.get("is_rag_candidate"):
-                        st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (RAG-ready)")
-                    else:
-                        st.markdown(f"⚠️ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Abstract only)")
-                    st.divider()
-            else:
-                st.write("No results found from PubMed.")
-            
-            # [Add your existing ClinicalTrials search here...]
-            
-            st.success("Search complete.")
+if st.sidebar.button("Search"):
+    # Use the UI variable names directly for clarity when passing to functions
+    if not (disease_input_ui or outcome_input_ui or population_input_ui): # Check if at least one main keyword is provided
+        st.error("Please fill in at least one of: Disease, Outcome, or Target Population.")
     else:
-        st.info("Enter search parameters in the sidebar and click 'Search'.")
-        
-        # MeSH Preview Feature
-        if enable_mesh:
-            st.subheader("MeSH Term Preview")
-            preview_term = st.text_input("Preview MeSH expansion for a term:", placeholder="Enter a medical term to see MeSH expansion")
-            if preview_term:
-                with st.spinner("Fetching MeSH terms..."):
-                    expanded_terms, summary = expand_search_terms_with_mesh(preview_term)
-                st.write(f"**Expansion for '{preview_term}':**")
-                st.write(f"**Summary:** {summary}")
-                st.write(f"**Expanded terms:** {', '.join(expanded_terms)}")
+        # --- PubMed Search ---
+        st.header("PubMed / PubMed Central Results")
+        pubmed_status_message = st.empty()
+        with st.spinner(f"Performing sequential PubMed search..."):
+            pubmed_status_message.info("Initializing PubMed search...")
+            # PubMed uses the main inputs as general keywords for its sequential search
+            pubmed_results, pubmed_query_description = fetch_pubmed_results(
+                disease_input_ui, outcome_input_ui, population_input_ui, 
+                study_type_ui, max_results_per_source
+            )
+        pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
+            
+        if pubmed_results:
+            st.write(f"Found {len(pubmed_results)} PubMed/PMC items:")
+            for res in pubmed_results:
+                if res.get("is_rag_candidate"):
+                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
+                else:
+                    st.markdown(f"⚠️ [{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
+                st.divider()
+        else:
+            st.write("No results from PubMed based on the criteria or an error occurred during search.")
+        st.markdown("---")
 
-if __name__ == "__main__":
-    main()
+        # --- ClinicalTrials.gov Search ---
+        st.header("ClinicalTrials.gov Results")
+        ct_status_message = st.empty()
+        
+        # Prepare parameters for fetch_clinicaltrials_results from UI elements
+        location_country_to_pass = ct_location_country_ui if ct_location_country_ui != "Any" else None
+        std_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
+        gender_to_pass = ct_gender_ui if ct_gender_ui != "Any" else None
+        masking_to_pass = ct_masking_ui if ct_masking_ui != "Any" else None
+        intervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
+
+        ct_status_message.info(f"Searching ClinicalTrials.gov with specified parameters...")
+        
+        with st.spinner(f"Searching ClinicalTrials.gov..."):
+            ct_results = fetch_clinicaltrials_results(
+                disease_input=disease_input_ui,         # For query.cond
+                outcome_input=outcome_input_ui,       # For query.outc
+                population_input=population_input_ui, # For query.term (free text)
+                std_age_adv=std_age_to_pass,          # For query.patient.age
+                location_country_adv=location_country_to_pass, # For query.location.country
+                gender_adv=gender_to_pass,            # For query.patient.gender
+                study_type_from_sidebar=study_type_ui,# For query.studyType
+                masking_type_post_filter=masking_to_pass,
+                intervention_model_post_filter=intervention_model_to_pass,
+                max_results=max_results_per_source
+            )
+        
+        if ct_results:
+            st.write(f"Found {len(ct_results)} Clinical Trial records **with results available** matching all criteria:") 
+            for res in ct_results:
+                st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})*") 
+                st.divider()
+        else:
+            ct_status_message.warning(f"No Clinical Trial records found matching all criteria. Check API request details in the info messages above.")
+        
+        st.markdown("---")
+        st.success("Search complete.")
+else:
+    st.info("Enter search parameters in the sidebar and click 'Search'.")
+
+st.sidebar.markdown("---")
+st.sidebar.header("Other Free Medical Research Databases")
+for db in OTHER_DATABASES: 
+    st.sidebar.markdown(f"[{db['name']}]({db['url']})")
+st.sidebar.markdown("---")
+st.sidebar.caption(f"Respect API terms of service.")
