@@ -161,17 +161,44 @@ def parse_clinical_trial_record(nct_id):
 
 def chunk_text(text, chunk_size=1500, chunk_overlap=200):
     """
-    Splits a long text into smaller, overlapping chunks.
+    Splits text into semantic chunks based on markdown headings and paragraphs.
     """
     if not text:
         return []
     
     chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start += chunk_size - chunk_overlap
+    current_chunk = ""
+    sections = re.split(r'(^## .*$)', text, flags=re.MULTILINE)
+    
+    for section in sections:
+        if not section.strip():
+            continue
+        paragraphs = section.split('\n\n')
+        for para in paragraphs:
+            if not para.strip():
+                continue
+            # Add paragraph to current chunk
+            if len(current_chunk) + len(para) + 2 <= chunk_size:
+                current_chunk += para + "\n\n"
+            else:
+                # Save current chunk with overlap
+                if current_chunk:
+                    chunks.append(current_chunk)
+                    # Start new chunk with overlap from previous
+                    overlap_start = max(0, len(current_chunk) - chunk_overlap)
+                    current_chunk = current_chunk[overlap_start:] + para + "\n\n"
+                else:
+                    # If paragraph is too long, split it
+                    start = 0
+                    while start < len(para):
+                        end = min(start + chunk_size, len(para))
+                        chunks.append(para[start:end])
+                        start += chunk_size - chunk_overlap
+                    current_chunk = para[start-chunk_overlap if start-chunk_overlap > 0 else 0:] + "\n\n"
+    
+    if current_chunk:
+        chunks.append(current_chunk)
+    
     return chunks
 
 def process_single_link(url):
