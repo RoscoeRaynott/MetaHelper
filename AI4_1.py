@@ -545,13 +545,13 @@ if st.sidebar.button("Search"):
     td_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
     gender_to_pass = ct_gender_ui if ct_gender_ui != "Any" else None
     masking_to_pass = ct_masking_ui if ct_masking_ui != "Any" else None
-    ntervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
-        ct_status_message.info("Searching ClinicalTrials.gov with specified parameters...")
+    intervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
+    ct_status_message.info("Searching ClinicalTrials.gov with specified parameters...")
     with st.spinner("Searching ClinicalTrials.gov..."):
         ct_results = fetch_clinicaltrials_results(
             disease_input=disease_input_ui,
-             outcome_input=outcome_input_ui,
-           population_input=population_input_ui,
+            outcome_input=outcome_input_ui,
+            population_input=population_input_ui,
             std_age_adv=std_age_to_pass,
             location_country_adv=location_country_to_pass,
             gender_adv=gender_to_pass,
