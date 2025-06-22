@@ -3,6 +3,60 @@ import requests
 import xmltodict
 import json
 import re
+import os
+
+# --- NEW HELPER FUNCTION TO GENERATE CONTEXT ---
+def generate_project_context():
+    """
+    Reads a specific list of .py files and combines them
+    into a single formatted string for context.
+    """
+    # --- EDIT THIS LIST TO ADD MORE FILES ---
+    # Add the relative paths to the files you want to include.
+    # For files in the root, just use the filename.
+    # For files in subdirectories, use "folder/filename.py".
+    files_to_include = [
+        "AI4_1.py",             # Assuming this is your main app file in the root
+        "data_ingestor.py",   # Assuming this is in the root
+        "pages/2_Analyze_Papers.py", # Example of how to add a file from a subfolder
+        "requirements.txt"
+    ]
+    # --- END EDIT ---
+
+    context_parts = []
+    # Get the root directory of the Streamlit app to build absolute paths
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    for relative_path in files_to_include:
+        # Use os.path.join to correctly create the full path
+        file_path = os.path.join(root_dir, relative_path)
+        
+        # Use the relative_path for the header for clean display
+        header = f"================================\nFile: {relative_path.replace(os.sep, '/')}\n================================\n\n"
+        context_parts.append(header)
+        
+        try:
+            # Check if the file actually exists before trying to open it
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    context_parts.append(f.read())
+                context_parts.append("\n\n")
+            else:
+                context_parts.append(f"Error: File not found at path '{relative_path}'\n\n")
+        except Exception as e:
+            context_parts.append(f"Error reading file '{relative_path}': {str(e)}\n\n")
+            
+    return "".join(context_parts)
+# --- END NEW HELPER FUNCTION ---
+
+# --- NEW: Initialize session state ---
+if 'pubmed_results' not in st.session_state:
+    st.session_state['pubmed_results'] = []
+if 'ct_results' not in st.session_state:
+    st.session_state['ct_results'] = []
+if 'links_for_rag' not in st.session_state:
+    st.session_state['links_for_rag'] = []
+# --- END NEW ---
 
 # --- Configuration ---
 try:
@@ -463,6 +517,7 @@ if st.sidebar.button("Search"):
                 disease_input_ui, outcome_input_ui, population_input_ui, 
                 study_type_ui, max_results_per_source
             )
+            st.session_state['pubmed_results'] = pubmed_results  # Save to session state
         pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
             
         if pubmed_results:
@@ -471,7 +526,7 @@ if st.sidebar.button("Search"):
                 if res.get("is_rag_candidate"):
                     st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
                 else:
-                    st.markdown(f"⚠️ [{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
+                    st.markdown(f"⚠️ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
                 if res.get("mesh_terms"):
                     st.caption(f"**MeSH Terms:** {' | '.join(res['mesh_terms'])}")
                 st.divider()
@@ -503,7 +558,7 @@ if st.sidebar.button("Search"):
                 intervention_model_post_filter=intervention_model_to_pass,
                 max_results=max_results_per_source
             )
-        
+            st.session_state['ct_results'] = ct_results  # Save to session state
         if ct_results:
             st.write(f"Found {len(ct_results)} Clinical Trial records **with results available** matching all criteria:") 
             for res in ct_results:
@@ -511,11 +566,27 @@ if st.sidebar.button("Search"):
                 st.divider()
         else:
             ct_status_message.warning(f"No Clinical Trial records found matching all criteria. Check API request details in the info messages above.")
-        
-        st.markdown("---")
-        st.success("Search complete.")
 else:
     st.info("Enter search parameters in the sidebar and click 'Search'.")
+    
+st.markdown("---")
+st.header("Prepare for Analysis")
+
+all_rag_candidate_links = []
+if st.session_state.get('pubmed_results'):
+    all_rag_candidate_links.extend([res['link'] for res in st.session_state['pubmed_results'] if res.get('is_rag_candidate')])
+if st.session_state.get('ct_results'):
+    all_rag_candidate_links.extend([res['link'] for res in st.session_state['ct_results'] if res.get('is_rag_candidate')])
+
+if all_rag_candidate_links:
+    st.write(f"Found {len(all_rag_candidate_links)} RAG-ready links from your last search.")
+    if st.button("Prepare These Links for Analysis"):
+        st.session_state['links_for_rag'] = all_rag_candidate_links
+        st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
+else:
+    st.warning("No RAG-ready links (from PMC or CT.gov) were found in your last search. Please run a new search.")
+
+
 
 st.sidebar.markdown("---")
 st.sidebar.header("Other Free Medical Research Databases")
@@ -523,3 +594,18 @@ for db in OTHER_DATABASES:
     st.sidebar.markdown(f"[{db['name']}]({db['url']})")
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Respect API terms of service.")
+# --- NEW: Add Context File Generator to Sidebar ---
+st.sidebar.markdown("---")
+st.sidebar.header("Project Context Generator")
+
+# Generate the context string by calling the helper function
+project_context_string = generate_project_context()
+
+st.sidebar.download_button(
+    label="📥 Download Context File",
+    data=project_context_string,
+    file_name="project_context.txt",
+    mime="text/plain",
+    help="Click to download all relevant .py files combined into a single text file. Provide this file in your next prompt."
+)
+# --- END NEW ---
