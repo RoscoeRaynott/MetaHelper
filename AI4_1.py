@@ -4,6 +4,15 @@ import xmltodict
 import json
 import re
 
+# --- NEW: Initialize session state ---
+if 'pubmed_results' not in st.session_state:
+    st.session_state['pubmed_results'] = []
+if 'ct_results' not in st.session_state:
+    st.session_state['ct_results'] = []
+if 'links_for_rag' not in st.session_state:
+    st.session_state['links_for_rag'] = []
+# --- END NEW ---
+
 # --- Configuration ---
 try:
     NCBI_API_KEY = st.secrets.get("NCBI_API_KEY")
@@ -463,6 +472,7 @@ if st.sidebar.button("Search"):
                 disease_input_ui, outcome_input_ui, population_input_ui, 
                 study_type_ui, max_results_per_source
             )
+            st.session_state['pubmed_results'] = pubmed_results  # Save to session state
         pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
             
         if pubmed_results:
@@ -503,7 +513,7 @@ if st.sidebar.button("Search"):
                 intervention_model_post_filter=intervention_model_to_pass,
                 max_results=max_results_per_source
             )
-        
+            st.session_state['ct_results'] = ct_results  # Save to session state
         if ct_results:
             st.write(f"Found {len(ct_results)} Clinical Trial records **with results available** matching all criteria:") 
             for res in ct_results:
@@ -511,27 +521,27 @@ if st.sidebar.button("Search"):
                 st.divider()
         else:
             ct_status_message.warning(f"No Clinical Trial records found matching all criteria. Check API request details in the info messages above.")
-        
-        st.markdown("---")
-        st.header("Prepare for Analysis")
-        
-        # Collect all RAG-candidate links from both searches
-        all_rag_candidate_links = []
-        if pubmed_results:
-            all_rag_candidate_links.extend([res['link'] for res in pubmed_results if res.get('is_rag_candidate')])
-        if ct_results:
-            all_rag_candidate_links.extend([res['link'] for res in ct_results if res.get('is_rag_candidate')])
-            
-        if all_rag_candidate_links:
-            st.write(f"Found {len(all_rag_candidate_links)} RAG-ready links (from PubMed Central and ClinicalTrials.gov).")
-            if st.button("Prepare These Links for Analysis"):
-                st.session_state['links_for_rag'] = all_rag_candidate_links
-                st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
-        else:
-            st.warning("No RAG-ready links (from PMC or CT.gov) were found in this search.")
-
 else:
     st.info("Enter search parameters in the sidebar and click 'Search'.")
+    
+st.markdown("---")
+st.header("Prepare for Analysis")
+
+all_rag_candidate_links = []
+if st.session_state.get('pubmed_results'):
+    all_rag_candidate_links.extend([res['link'] for res in st.session_state['pubmed_results'] if res.get('is_rag_candidate')])
+if st.session_state.get('ct_results'):
+    all_rag_candidate_links.extend([res['link'] for res in st.session_state['ct_results'] if res.get('is_rag_candidate')])
+
+if all_rag_candidate_links:
+    st.write(f"Found {len(all_rag_candidate_links)} RAG-ready links from your last search.")
+    if st.button("Prepare These Links for Analysis"):
+        st.session_state['links_for_rag'] = all_rag_candidate_links
+        st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
+else:
+    st.warning("No RAG-ready links (from PMC or CT.gov) were found in your last search. Please run a new search.")
+
+
 
 st.sidebar.markdown("---")
 st.sidebar.header("Other Free Medical Research Databases")
