@@ -257,11 +257,28 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
             mesh_heading_list = medline_citation.get("MeshHeadingList", {}).get("MeshHeading", [])
             if not isinstance(mesh_heading_list, list):
                 mesh_heading_list = [mesh_heading_list] if mesh_heading_list else []
-            
             for heading in mesh_heading_list:
                 descriptor_name = heading.get("DescriptorName", {}).get("#text")
                 if descriptor_name:
                     mesh_terms_list.append(descriptor_name)
+
+            # --- NEW: Parse Secondary IDs, including NCT ID ---
+            referenced_nct_id = None
+            # The NCT ID is usually in the DataBankList
+            secondary_ids_list = article_info.get("DataBankList", {}).get("DataBank", [])
+            if not isinstance(secondary_ids_list, list):
+                secondary_ids_list = [secondary_ids_list] if secondary_ids_list else []
+
+            for databank in secondary_ids_list:
+                # The DataBankName for ClinicalTrials.gov is consistent
+                if databank.get("DataBankName") == "ClinicalTrials.gov":
+                    accession_numbers = databank.get("AccessionNumberList", {}).get("AccessionNumber", [])
+                    if not isinstance(accession_numbers, list):
+                        accession_numbers = [accession_numbers]
+                    if accession_numbers:
+                        referenced_nct_id = accession_numbers[0] # Take the first one
+                        break # Found it, no need to look further
+            # --- END NEW ---
 
             pubmed_link_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid != "N/A" else "#"
             pmc_link_url = None
@@ -283,7 +300,8 @@ def fetch_pubmed_results(disease, outcome, population, study_type_selection, max
                 "link": pmc_link_url if is_rag_candidate else pubmed_link_url,
                 "is_rag_candidate": is_rag_candidate,
                 "source_type": "PubMed Central Article" if is_rag_candidate else "PubMed Abstract",
-                "mesh_terms": mesh_terms_list
+                "mesh_terms": mesh_terms_list,
+                "nct_id": referenced_nct_id # NEW: Add the found NCT ID
             })
 
         return pubmed_results_list, f"PubMed: Fetched {len(pubmed_results_list)} results for query: {final_query}"
@@ -509,82 +527,83 @@ if st.sidebar.button("Search"):
     if not (disease_input_ui or outcome_input_ui or population_input_ui):
         st.error("Please fill in at least one of: Disease, Outcome, or Target Population.")
     else:
-        st.header("PubMed / PubMed Central Results")
-        pubmed_status_message = st.empty()
-        with st.spinner(f"Performing PubMed search..."):
-            pubmed_status_message.info("Initializing PubMed search...")
-            pubmed_results, pubmed_query_description = fetch_pubmed_results(
-                disease_input_ui, outcome_input_ui, population_input_ui, 
-                study_type_ui, max_results_per_source
-            )
-            st.session_state['pubmed_results'] = pubmed_results  # Save to session state
-        pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
+        st.header("Unified & De-duplicated Search Results")
+
+        # Use a dictionary to store the best version of each trial, keyed by NCT ID
+        # This handles duplicates and prioritizes PMC articles.
+        unified_trials = {}
+
+        # Combine results from session state
+        all_results = st.session_state.get('ct_results', []) + st.session_state.get('pubmed_results', [])
+
+        for res in all_results:
+            nct_id = res.get('nct_id')
             
-        if pubmed_results:
-            st.write(f"Found {len(pubmed_results)} PubMed/PMC items:")
-            for res in pubmed_results:
-                if res.get("is_rag_candidate"):
-                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
+            # Case 1: Result has no NCT ID (it's a unique PubMed article not linked to a trial)
+            if not nct_id:
+                # Use its own link as the unique key
+                unique_key = res.get('link')
+                if unique_key and unique_key not in unified_trials:
+                    unified_trials[unique_key] = res
+                continue
+
+            # Case 2: Result has an NCT ID
+            # If we haven't seen this NCT ID yet, add it.
+            if nct_id not in unified_trials:
+                unified_trials[nct_id] = res
+            else:
+                # We have a duplicate. Decide which version to keep.
+                # Prioritize the one that is a full-text PMC article.
+                existing_entry_is_pmc = "PubMed" in unified_trials[nct_id].get('source_type', '')
+                new_entry_is_pmc = "PubMed" in res.get('source_type', '')
+
+                # If the new entry is a PubMed article and the old one wasn't, replace it.
+                if new_entry_is_pmc and not existing_entry_is_pmc:
+                    unified_trials[nct_id] = res
+        
+        # Convert the dictionary of unique trials back to a list for display
+        unified_results = list(unified_trials.values())
+
+        # Now, display the de-duplicated and unified results
+        if unified_results:
+            st.write(f"Found {len(unified_results)} unique items after de-duplication:")
+            for res in unified_results:
+                source_type = res.get('source_type', 'Unknown Source')
+                title = res.get('title', 'No Title')
+                link = res.get('link', '#')
+                is_candidate = res.get('is_rag_candidate', False)
+                
+                if is_candidate:
+                    st.markdown(f"✅ **[{title}]({link})** - *{source_type}*")
                 else:
-                    st.markdown(f"⚠️ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
+                    st.markdown(f"⚠️ **[{title}]({link})** - *{source_type}* (Access for RAG needs verification)")
+
+                # Display MeSH terms for PubMed articles
                 if res.get("mesh_terms"):
                     st.caption(f"**MeSH Terms:** {' | '.join(res['mesh_terms'])}")
+                
+                # Display NCT ID if available (from either source)
+                if res.get("nct_id"):
+                    st.caption(f"**NCT ID:** {res['nct_id']}")
+
                 st.divider()
         else:
-            st.write("No results from PubMed based on the criteria or an error occurred during search.")
+            st.write("No results found based on the criteria or an error occurred during search.")
+        
+        # --- Section to Prepare Links for RAG Analysis Page ---
         st.markdown("---")
-
-        st.header("ClinicalTrials.gov Results")
-        ct_status_message = st.empty()
+        st.header("Prepare for Analysis")
         
-        location_country_to_pass = ct_location_country_ui if ct_location_country_ui != "Any" else None
-        std_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
-        gender_to_pass = ct_gender_ui if ct_gender_ui != "Any" else None
-        masking_to_pass = ct_masking_ui if ct_masking_ui != "Any" else None
-        intervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
-
-        ct_status_message.info(f"Searching ClinicalTrials.gov with specified parameters...")
-        
-        with st.spinner(f"Searching ClinicalTrials.gov..."):
-            ct_results = fetch_clinicaltrials_results(
-                disease_input=disease_input_ui,
-                outcome_input=outcome_input_ui,
-                population_input=population_input_ui,
-                std_age_adv=std_age_to_pass,
-                location_country_adv=location_country_to_pass,
-                gender_adv=gender_to_pass,
-                study_type_from_sidebar=study_type_ui,
-                masking_type_post_filter=masking_to_pass,
-                intervention_model_post_filter=intervention_model_to_pass,
-                max_results=max_results_per_source
-            )
-            st.session_state['ct_results'] = ct_results  # Save to session state
-        if ct_results:
-            st.write(f"Found {len(ct_results)} Clinical Trial records **with results available** matching all criteria:") 
-            for res in ct_results:
-                st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']} (NCT: {res['nct_id']})*") 
-                st.divider()
+        # This part now uses the de-duplicated 'unified_results' list
+        all_rag_candidate_links = [res['link'] for res in unified_results if res.get('is_rag_candidate')]
+            
+        if all_rag_candidate_links:
+            st.write(f"Found {len(all_rag_candidate_links)} unique RAG-ready links.")
+            if st.button("Prepare These Links for Analysis"):
+                st.session_state['links_for_rag'] = all_rag_candidate_links
+                st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
         else:
-            ct_status_message.warning(f"No Clinical Trial records found matching all criteria. Check API request details in the info messages above.")
-else:
-    st.info("Enter search parameters in the sidebar and click 'Search'.")
-    
-st.markdown("---")
-st.header("Prepare for Analysis")
-
-all_rag_candidate_links = []
-if st.session_state.get('pubmed_results'):
-    all_rag_candidate_links.extend([res['link'] for res in st.session_state['pubmed_results'] if res.get('is_rag_candidate')])
-if st.session_state.get('ct_results'):
-    all_rag_candidate_links.extend([res['link'] for res in st.session_state['ct_results'] if res.get('is_rag_candidate')])
-
-if all_rag_candidate_links:
-    st.write(f"Found {len(all_rag_candidate_links)} RAG-ready links from your last search.")
-    if st.button("Prepare These Links for Analysis"):
-        st.session_state['links_for_rag'] = all_rag_candidate_links
-        st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
-else:
-    st.warning("No RAG-ready links (from PMC or CT.gov) were found in your last search. Please run a new search.")
+            st.warning("No RAG-ready links were found in this search.")
 
 
 
