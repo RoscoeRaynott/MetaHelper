@@ -471,7 +471,7 @@ if st.sidebar.button("Search"):
                 if res.get("is_rag_candidate"):
                     st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
                 else:
-                    st.markdown(f"⚠️ [{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
+                    st.markdown(f"⚠️ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
                 if res.get("mesh_terms"):
                     st.caption(f"**MeSH Terms:** {' | '.join(res['mesh_terms'])}")
                 st.divider()
