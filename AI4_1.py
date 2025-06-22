@@ -513,7 +513,23 @@ if st.sidebar.button("Search"):
             ct_status_message.warning(f"No Clinical Trial records found matching all criteria. Check API request details in the info messages above.")
         
         st.markdown("---")
-        st.success("Search complete.")
+        st.header("Prepare for Analysis")
+        
+        # Collect all RAG-candidate links from both searches
+        all_rag_candidate_links = []
+        if pubmed_results:
+            all_rag_candidate_links.extend([res['link'] for res in pubmed_results if res.get('is_rag_candidate')])
+        if ct_results:
+            all_rag_candidate_links.extend([res['link'] for res in ct_results if res.get('is_rag_candidate')])
+            
+        if all_rag_candidate_links:
+            st.write(f"Found {len(all_rag_candidate_links)} RAG-ready links (from PubMed Central and ClinicalTrials.gov).")
+            if st.button("Prepare These Links for Analysis"):
+                st.session_state['links_for_rag'] = all_rag_candidate_links
+                st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
+        else:
+            st.warning("No RAG-ready links (from PMC or CT.gov) were found in this search.")
+
 else:
     st.info("Enter search parameters in the sidebar and click 'Search'.")
 
