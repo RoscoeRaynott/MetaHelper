@@ -41,7 +41,7 @@ else:
                 
                 # Display a few chunks as an example
                 for i, chunk in enumerate(text_chunks[:3]): # Show first 3 chunks
-                    with st.expander(f"Chunk {i+1} (First 100 characters: '{chunk[:100].strip()...}')"):
+                    with st.expander(f"Chunk {i+1} (First 100 characters: '{chunk[:100].strip()}')"):
                         st.write(chunk)
             else:
                 st.error(f"Failed to process the link. Reason: {text_chunks}") # The second return value is the error message
