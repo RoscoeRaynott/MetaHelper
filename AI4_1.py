@@ -537,16 +537,16 @@ if st.sidebar.button("Search"):
             disease_input_ui, outcome_input_ui, population_input_ui,
             study_type_ui, max_results_per_source
         )
-       st.session_state['pubmed_results'] = pubmed_results
+        st.session_state['pubmed_results'] = pubmed_results
     pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
          # Fetch ClinicalTrials.gov results
     ct_status_message = st.empty()
-     location_country_to_pass = ct_location_country_ui if ct_location_country_ui != "Any" else None
+    location_country_to_pass = ct_location_country_ui if ct_location_country_ui != "Any" else None
     td_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
     gender_to_pass = ct_gender_ui if ct_gender_ui != "Any" else None
-     masking_to_pass = ct_masking_ui if ct_masking_ui != "Any" else None
+    masking_to_pass = ct_masking_ui if ct_masking_ui != "Any" else None
     ntervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
-         ct_status_message.info("Searching ClinicalTrials.gov with specified parameters...")
+        ct_status_message.info("Searching ClinicalTrials.gov with specified parameters...")
     with st.spinner("Searching ClinicalTrials.gov..."):
         ct_results = fetch_clinicaltrials_results(
             disease_input=disease_input_ui,
