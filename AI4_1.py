@@ -542,7 +542,7 @@ if st.sidebar.button("Search"):
          # Fetch ClinicalTrials.gov results
     ct_status_message = st.empty()
     location_country_to_pass = ct_location_country_ui if ct_location_country_ui != "Any" else None
-    td_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
+    std_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
     gender_to_pass = ct_gender_ui if ct_gender_ui != "Any" else None
     masking_to_pass = ct_masking_ui if ct_masking_ui != "Any" else None
     intervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
