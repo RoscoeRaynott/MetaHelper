@@ -8,36 +8,44 @@ import os
 # --- NEW HELPER FUNCTION TO GENERATE CONTEXT ---
 def generate_project_context():
     """
-    Scans the project directory, reads all .py files,
-    and combines them into a single formatted string for context.
+    Reads a specific list of .py files and combines them
+    into a single formatted string for context.
     """
+    # --- EDIT THIS LIST TO ADD MORE FILES ---
+    # Add the relative paths to the files you want to include.
+    # For files in the root, just use the filename.
+    # For files in subdirectories, use "folder/filename.py".
+    files_to_include = [
+        "AI4_1.py",             # Assuming this is your main app file in the root
+        "data_ingestor.py",   # Assuming this is in the root
+        "pages/2_Analyze_Papers.py" # Example of how to add a file from a subfolder
+        "requirements.txt"
+    ]
+    # --- END EDIT ---
+
     context_parts = []
-    # Get the root directory of the Streamlit app
+    # Get the root directory of the Streamlit app to build absolute paths
     root_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # Walk through the directory tree
-    for dirpath, dirnames, filenames in os.walk(root_dir):
-        # Exclude virtual environment folders
-        if 'venv' in dirpath or '.venv' in dirpath:
-            continue
+    for relative_path in files_to_include:
+        # Use os.path.join to correctly create the full path
+        file_path = os.path.join(root_dir, relative_path)
+        
+        # Use the relative_path for the header for clean display
+        header = f"================================\nFile: {relative_path.replace(os.sep, '/')}\n================================\n\n"
+        context_parts.append(header)
+        
+        try:
+            # Check if the file actually exists before trying to open it
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    context_parts.append(f.read())
+                context_parts.append("\n\n")
+            else:
+                context_parts.append(f"Error: File not found at path '{relative_path}'\n\n")
+        except Exception as e:
+            context_parts.append(f"Error reading file '{relative_path}': {str(e)}\n\n")
             
-        for filename in filenames:
-            if filename.endswith(".py"):
-                # Construct the full file path
-                file_path = os.path.join(dirpath, filename)
-                # Create a relative path for cleaner display
-                relative_path = os.path.relpath(file_path, root_dir)
-                
-                header = f"================================\nFile: {relative_path.replace(os.sep, '/')}\n================================\n\n"
-                context_parts.append(header)
-                
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        context_parts.append(f.read())
-                    context_parts.append("\n\n")
-                except Exception as e:
-                    context_parts.append(f"Error reading file: {str(e)}\n\n")
-                    
     return "".join(context_parts)
 # --- END NEW HELPER FUNCTION ---
 
