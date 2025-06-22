@@ -28,18 +28,15 @@ def parse_pmc_article(html_content):
 
     soup = BeautifulSoup(html_content, 'html.parser')
 
-    # Extract title with fallbacks
     title_tag = (soup.find('h1', class_='content-title') or
                  soup.find('h1') or
                  soup.find('title'))
     title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
 
-    # Extract abstract with fallbacks
     abstract_div = (soup.find('div', class_='abstract') or
                     soup.find('div', id=re.compile('abstract.*', re.I)))
     abstract = abstract_div.get_text(separator='\n', strip=True) if abstract_div else ""
 
-    # Extract body with fallbacks
     body_div = (soup.find('div', class_='jig-ncbiinpagenav') or
                 soup.find('div', class_=re.compile('article.*', re.I)) or
                 soup.find('article'))
@@ -57,37 +54,110 @@ def parse_pmc_article(html_content):
     full_text = f"# {title}\n\n## Abstract\n{abstract}\n{body_text}"
     return full_text, "Success" if (abstract or body_text) else "No content parsed from PMC article."
 
-def parse_clinical_trial_record(html_content):
+def parse_clinical_trial_record(nct_id):
     """
-    Parses HTML from a ClinicalTrials.gov record to extract title and sections.
-    Uses fallback selectors to handle website changes.
+    Fetches and parses a ClinicalTrials.gov study using the API v2 endpoint.
+    Returns structured text with title, summary, description, conditions, interventions, outcomes, results, and eligibility.
     """
-    if not html_content:
-        return "", "No HTML content provided."
+    if not nct_id:
+        return "", "No NCT ID provided."
 
-    soup = BeautifulSoup(html_content, 'html.parser')
+    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}
+        response = requests.get(api_url, headers=headers, timeout=15)
+        response.raise_for_status()
+        data = response.json()
 
-    # Extract title with fallbacks
-    title_tag = (soup.find('h1', {'data-testid': 'official-title-h1'}) or
-                 soup.find('h1') or
-                 soup.find('title'))
-    title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
+        # Extract relevant fields
+        protocol = data.get('protocolSection', {})
+        title = protocol.get('identificationModule', {}).get('officialTitle') or protocol.get('identificationModule', {}).get('briefTitle', 'No Title Found')
+        summary = protocol.get('descriptionModule', {}).get('briefSummary', '')
+        detailed_description = protocol.get('descriptionModule', {}).get('detailedDescription', '')
+        conditions = protocol.get('conditionsModule', {}).get('conditions', [])
+        eligibility = protocol.get('eligibilityModule', {}).get('eligibilityCriteria', '')
+        status = protocol.get('statusModule', {}).get('overallStatus', 'N/A')
+        interventions = protocol.get('armsInterventionsModule', {}).get('interventions', [])
+        primary_outcomes = protocol.get('outcomesModule', {}).get('primaryOutcomes', [])
+        secondary_outcomes = protocol.get('outcomesModule', {}).get('secondaryOutcomes', [])
+        results = data.get('resultsSection', {})
 
-    full_text = f"# {title}\n\n"
+        # Format interventions
+        interventions_text = ''
+        for idx, interv in enumerate(interventions, 1):
+            interv_name = interv.get('name', 'Unknown')
+            interv_type = interv.get('type', 'Unknown')
+            interv_desc = interv.get('description', '')
+            interventions_text += f"Intervention {idx}: {interv_name} ({interv_type})\n{interv_desc}\n\n"
 
-    # Extract sections with fallbacks
-    section_headers = (soup.find_all('h2', {'data-testid': re.compile(r'h2-.*')}) or
-                       soup.find_all('h2'))
-    section_found = False
-    for header in section_headers:
-        section_title = header.get_text(strip=True)
-        content_div = header.find_next_sibling('div') or header.find_parent('div').find_next('div')
-        if content_div:
-            section_text = content_div.get_text(separator='\n', strip=True)
-            full_text += f"## {section_title}\n\n{section_text}\n\n"
-            section_found = True
+        # Format outcomes
+        outcomes_text = ''
+        if primary_outcomes:
+            outcomes_text += "Primary Outcomes:\n"
+            for idx, outcome in enumerate(primary_outcomes, 1):
+                measure = outcome.get('measure', 'N/A')
+                time_frame = outcome.get('timeFrame', 'N/A')
+                description = outcome.get('description', '')
+                outcomes_text += f"{idx}. {measure}\n  Time Frame: {time_frame}\n  Description: {description}\n\n"
+        if secondary_outcomes:
+            outcomes_text += "Secondary Outcomes:\n"
+            for idx, outcome in enumerate(secondary_outcomes, 1):
+                measure = outcome.get('measure', 'N/A')
+                time_frame = outcome.get('timeFrame', 'N/A')
+                description = outcome.get('description', '')
+                outcomes_text += f"{idx}. {measure}\n  Time Frame: {time_frame}\n  Description: {description}\n\n"
 
-    return full_text, "Success" if section_found else "No sections parsed from ClinicalTrials.gov record."
+        # Format results
+        results_text = ''
+        if results:
+            adverse_events = results.get('adverseEventsModule', {})
+            if adverse_events:
+                results_text += "Adverse Events:\n"
+                serious_events = adverse_events.get('seriousAdverseEvents', [])
+                other_events = adverse_events.get('otherAdverseEvents', [])
+                for event in serious_events + other_events:
+                    term = event.get('term', 'Unknown')
+                    count = event.get('eventCount', 'N/A')
+                    results_text += f"{term}: {count} events\n"
+            outcome_results = results.get('outcomeMeasuresModule', {})
+            if outcome_results:
+                results_text += "\nOutcome Results:\n"
+                for measure in outcome_results.get('outcomeMeasures', []):
+                    title = measure.get('title', 'Unknown')
+                    result_desc = measure.get('description', '')
+                    results_text += f"{title}\n{result_desc}\n"
+
+        # Build full text
+        full_text = f"# {title}\n(NCT ID: {nct_id})\n\n"
+        if status:
+            full_text += f"## Status\n{status}\n\n"
+        if summary:
+            full_text += f"## Summary\n{summary}\n\n"
+        if detailed_description:
+            full_text += f"## Detailed Description\n{detailed_description}\n\n"
+        if conditions:
+            full_text += f"## Conditions\n{'\n'.join(conditions)}\n\n"
+        if eligibility:
+            full_text += f"## Eligibility Criteria\n{eligibility}\n\n"
+        if interventions_text:
+            full_text += f"## Interventions\n{interventions_text}\n"
+        if outcomes_text:
+            full_text += f"## Outcomes\n{outcomes_text}\n"
+        if results_text:
+            full_text += f"## Results\n{results_text}\n"
+
+        content_found = any([summary, detailed_description, conditions, eligibility, interventions_text, outcomes_text, results_text])
+        status = "Success" if content_found else f"No content parsed from ClinicalTrials.gov API for NCT ID: {nct_id}"
+        print(f"Parse status for ClinicalTrials.gov (NCT ID: {nct_id}): {status}")
+
+        return full_text, status
+
+    except requests.exceptions.RequestException as e:
+        print(f"API request failed for NCT ID {nct_id}: {e}")
+        return "", f"API request failed: {str(e)}"
+    except ValueError as e:  # Covers JSON decode errors
+        print(f"JSON decode error for NCT ID {nct_id}: {e}")
+        return "", f"JSON decode error: {str(e)}"
 
 def chunk_text(text, chunk_size=1500, chunk_overlap=200):
     """
@@ -110,16 +180,17 @@ def process_single_link(url):
     Takes a single URL, fetches, parses, and chunks it.
     """
     print(f"Processing link: {url}")
-    html_content = fetch_content_from_url(url)
-    if not html_content:
-        return None, "Failed to fetch content."
-
-    clean_text = ""
-    status = ""
     if "ncbi.nlm.nih.gov/pmc/articles" in url:
+        html_content = fetch_content_from_url(url)
+        if not html_content:
+            return None, "Failed to fetch content."
         clean_text, status = parse_pmc_article(html_content)
     elif "clinicaltrials.gov/study" in url:
-        clean_text, status = parse_clinical_trial_record(html_content)
+        nct_match = re.search(r'NCT\d+', url)
+        if not nct_match:
+            return None, "Could not extract NCT ID from URL."
+        nct_id = nct_match.group(0)
+        clean_text, status = parse_clinical_trial_record(nct_id)
     else:
         return None, "URL is not a recognized PMC or ClinicalTrials.gov link."
 
