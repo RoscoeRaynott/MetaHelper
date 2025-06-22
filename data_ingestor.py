@@ -2,51 +2,32 @@
 
 import requests
 from bs4 import BeautifulSoup
-import PyPDF2
-import io
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+# We will use a simple text splitter for now. LangChain is a great next step, but this avoids extra dependencies.
 
 def fetch_content_from_url(url):
     """
-    Fetches content from a URL. Returns content and content_type ('html' or 'pdf').
+    Fetches the raw HTML content from a given URL.
+    Returns the HTML content as a string, or None if fetching fails.
     """
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
-        response = requests.get(url, headers=headers, timeout=20)
-        response.raise_for_status()  # Raise an exception for bad status codes
-
-        content_type = response.headers.get('Content-Type', '')
-        if 'application/pdf' in content_type or url.lower().endswith('.pdf'):
-            return response.content, 'pdf'
-        else:
-            return response.text, 'html'
-            
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()  # Will raise an HTTPError for bad responses (4XX or 5XX)
+        return response.text
     except requests.exceptions.RequestException as e:
         print(f"Error fetching URL {url}: {e}")
-        return None, None
-
-def parse_pdf(pdf_content):
-    """
-    Parses text from PDF content.
-    """
-    try:
-        pdf_file = io.BytesIO(pdf_content)
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        text = ""
-        for page in pdf_reader.pages:
-            text += page.extract_text() or ""
-        return text
-    except Exception as e:
-        print(f"Error parsing PDF content: {e}")
-        return ""
+        return None
 
 def parse_pmc_article(html_content):
     """
-    Parses the main text from a PubMed Central article's HTML.
+    Parses the HTML from a PubMed Central article to extract relevant text.
     Focuses on title, abstract, and main body content.
     """
+    if not html_content:
+        return ""
+    
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # Extract title
@@ -55,106 +36,95 @@ def parse_pmc_article(html_content):
     
     # Extract abstract
     abstract_div = soup.find('div', class_='abstract')
-    abstract = abstract_div.get_text(strip=True) if abstract_div else ""
+    abstract = abstract_div.get_text(separator='\n', strip=True) if abstract_div else ""
     
-    # Extract main body, focusing on divs that typically contain article content
-    body_div = soup.find('div', class_='j-body')
-    body_text = body_div.get_text(strip=True) if body_div else ""
+    # Extract main body content
+    body_div = soup.find('div', class_='jig-ncbiinpagenav') # Main content container on PMC
+    body_text = ""
+    if body_div:
+        # Find all section divs within the body
+        sections = body_div.find_all('div', class_='sec')
+        for sec in sections:
+            # Add section title if it exists
+            sec_title = sec.find(['h2', 'h3'])
+            if sec_title:
+                body_text += f"\n\n## {sec_title.get_text(strip=True)}\n\n"
+            # Add all paragraph text
+            paragraphs = sec.find_all('p')
+            for p in paragraphs:
+                body_text += p.get_text(strip=True) + "\n"
     
-    full_text = f"Title: {title}\n\nAbstract: {abstract}\n\nBody: {body_text}"
-    return full_text, title
+    full_text = f"# {title}\n\n## Abstract\n{abstract}\n{body_text}"
+    return full_text
 
 def parse_clinical_trial_record(html_content):
     """
-    Parses key sections from a ClinicalTrials.gov record's HTML.
+    Parses the HTML from a ClinicalTrials.gov record to extract key information.
     """
+    if not html_content:
+        return ""
+        
     soup = BeautifulSoup(html_content, 'html.parser')
     
     # Extract title
-    title_tag = soup.find(attrs={'data-testid': 'official-title'})
+    title_tag = soup.find('h1', {'data-testid': 'official-title-h1'})
     title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
-    if title == "No Title Found": # Fallback to brief title
-        title_tag = soup.find(attrs={'data-testid': 'brief-title'})
-        title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
-
-    # Extract key sections using their data-testid attributes
-    sections_to_extract = {
-        "Condition": "condition",
-        "Brief Summary": "brief-summary",
-        "Detailed Description": "detailed-description",
-        "Primary Outcome Measures": "primary-outcome",
-        "Secondary Outcome Measures": "secondary-outcome"
-    }
     
-    full_text = f"Title: {title}\n\n"
-    for section_name, test_id in sections_to_extract.items():
-        section_tag = soup.find(attrs={'data-testid': test_id})
-        if section_tag:
-            full_text += f"{section_name}:\n{section_tag.get_text(strip=True)}\n\n"
-            
-    return full_text, title
-
-def chunk_text(text, source_url, paper_title):
-    """
-    Splits a long text into smaller chunks using LangChain's text splitter.
-    """
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1500,
-        chunk_overlap=200,
-        length_function=len,
-        is_separator_regex=False,
-    )
-    # Create documents with metadata before splitting
-    # The splitter works best with a list of 'Document' objects or simple texts
-    chunks = text_splitter.split_text(text)
+    full_text = f"# {title}\n\n"
     
-    # Return a list of dictionaries, each with the chunk and its metadata
-    return [
-        {
-            'text': chunk,
-            'metadata': {
-                'source_url': source_url,
-                'title': paper_title
-            }
-        } 
-        for chunk in chunks
-    ]
-
-def process_links(list_of_links):
-    """
-    Main controller function. Takes a list of URLs, processes them,
-    and returns a list of all text chunks with metadata.
-    """
-    all_chunks_with_metadata = []
-    for url in list_of_links:
-        print(f"Processing: {url}")
-        content, content_type = fetch_content_from_url(url)
-        
-        if not content:
-            print(f"--> Failed to fetch content for {url}")
-            continue
-
-        clean_text = ""
-        paper_title = "Unknown Title"
-
-        if content_type == 'pdf':
-            clean_text = parse_pdf(content)
-            paper_title = url.split('/')[-1] # Use filename as title for PDFs
-        
-        elif content_type == 'html':
-            if 'ncbi.nlm.nih.gov/pmc/articles' in url:
-                clean_text, paper_title = parse_pmc_article(content)
-            elif 'clinicaltrials.gov/study' in url:
-                clean_text, paper_title = parse_clinical_trial_record(content)
-            else:
-                print(f"--> Don't know how to parse this HTML URL: {url}")
-                continue
-        
-        if clean_text:
-            chunks = chunk_text(clean_text, url, paper_title)
-            all_chunks_with_metadata.extend(chunks)
-            print(f"--> Success! Extracted and chunked. Found {len(chunks)} chunks.")
-        else:
-            print(f"--> Failed to extract text from {url}")
+    # Find all sections which are identified by `data-testid` attributes on h2 tags
+    section_headers = soup.find_all('h2', {'data-testid': re.compile(r'h2-.*')})
+    
+    for header in section_headers:
+        section_title = header.get_text(strip=True)
+        # The content is usually in the next sibling div
+        content_div = header.find_next_sibling('div')
+        if content_div:
+            section_text = content_div.get_text(separator='\n', strip=True)
+            full_text += f"## {section_title}\n\n{section_text}\n\n"
             
-    return all_chunks_with_metadata
+    return full_text
+
+def chunk_text(text, chunk_size=1500, chunk_overlap=200):
+    """
+    Splits a long text into smaller, overlapping chunks.
+    A simple implementation without external libraries.
+    """
+    if not text:
+        return []
+    
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start += chunk_size - chunk_overlap
+    return chunks
+
+def process_single_link(url):
+    """
+    Main controller function for this module.
+    Takes a single URL, fetches, parses, and chunks it.
+    """
+    print(f"Processing link: {url}")
+    html_content = fetch_content_from_url(url)
+    if not html_content:
+        return None, "Failed to fetch content."
+
+    clean_text = ""
+    if "ncbi.nlm.nih.gov/pmc/articles" in url:
+        clean_text = parse_pmc_article(html_content)
+    elif "clinicaltrials.gov/study" in url:
+        # Note: The CT.gov parser is a new addition and might need refinement
+        # based on the actual HTML structure.
+        clean_text = parse_clinical_trial_record(html_content)
+    else:
+        return None, "URL is not a recognized PMC or ClinicalTrials.gov link."
+
+    if not clean_text:
+        return None, "Failed to parse text from HTML."
+
+    text_chunks = chunk_text(clean_text)
+    
+    # For verification, we return the clean text and the chunks
+    return clean_text, text_chunks
