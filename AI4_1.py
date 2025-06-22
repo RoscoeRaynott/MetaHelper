@@ -18,7 +18,7 @@ def generate_project_context():
     files_to_include = [
         "AI4_1.py",             # Assuming this is your main app file in the root
         "data_ingestor.py",   # Assuming this is in the root
-        "pages/2_Analyze_Papers.py" # Example of how to add a file from a subfolder
+        "pages/2_Analyze_Papers.py", # Example of how to add a file from a subfolder
         "requirements.txt"
     ]
     # --- END EDIT ---
