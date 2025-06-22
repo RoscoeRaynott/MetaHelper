@@ -2,6 +2,7 @@
 
 import requests
 from bs4 import BeautifulSoup
+import re
 # We will use a simple text splitter for now. LangChain is a great next step, but this avoids extra dependencies.
 
 def fetch_content_from_url(url):
