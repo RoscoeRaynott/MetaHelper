@@ -529,42 +529,39 @@ if st.sidebar.button("Search"):
     else:
         st.header("Unified Search Results")
  
-     # Fetch PubMed results
-     pubmed_status_message = st.empty()
-     with st.spinner("Performing PubMed search..."):
-         pubmed_status_message.info("Initializing PubMed search...")
-         pubmed_results, pubmed_query_description = fetch_pubmed_results(
-             disease_input_ui, outcome_input_ui, population_input_ui,
-             study_type_ui, max_results_per_source
-         )
-         st.session_state['pubmed_results'] = pubmed_results
-     pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
- 
-     # Fetch ClinicalTrials.gov results
-     ct_status_message = st.empty()
+    # Fetch PubMed results
+    pubmed_status_message = st.empty()
+    with st.spinner("Performing PubMed search..."):
+        pubmed_status_message.info("Initializing PubMed search...")
+        pubmed_results, pubmed_query_description = fetch_pubmed_results(
+            disease_input_ui, outcome_input_ui, population_input_ui,
+            study_type_ui, max_results_per_source
+        )
+       st.session_state['pubmed_results'] = pubmed_results
+    pubmed_status_message.info(f"PubMed Strategy: {pubmed_query_description}")
+         # Fetch ClinicalTrials.gov results
+    ct_status_message = st.empty()
      location_country_to_pass = ct_location_country_ui if ct_location_country_ui != "Any" else None
-     std_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
-     gender_to_pass = ct_gender_ui if ct_gender_ui != "Any" else None
+    td_age_to_pass = ct_std_age_ui if ct_std_age_ui != "Any" else None
+    gender_to_pass = ct_gender_ui if ct_gender_ui != "Any" else None
      masking_to_pass = ct_masking_ui if ct_masking_ui != "Any" else None
-     intervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
- 
-     ct_status_message.info("Searching ClinicalTrials.gov with specified parameters...")
-     with st.spinner("Searching ClinicalTrials.gov..."):
-         ct_results = fetch_clinicaltrials_results(
-             disease_input=disease_input_ui,
+    ntervention_model_to_pass = ct_intervention_model_ui if ct_intervention_model_ui != "Any" else None
+         ct_status_message.info("Searching ClinicalTrials.gov with specified parameters...")
+    with st.spinner("Searching ClinicalTrials.gov..."):
+        ct_results = fetch_clinicaltrials_results(
+            disease_input=disease_input_ui,
              outcome_input=outcome_input_ui,
-             population_input=population_input_ui,
-             std_age_adv=std_age_to_pass,
-             location_country_adv=location_country_to_pass,
-             gender_adv=gender_to_pass,
-             study_type_from_sidebar=study_type_ui,
-             masking_type_post_filter=masking_to_pass,
-             intervention_model_post_filter=intervention_model_to_pass,
-             max_results=max_results_per_source
-         )
-         st.session_state['ct_results'] = ct_results
+           population_input=population_input_ui,
+            std_age_adv=std_age_to_pass,
+            location_country_adv=location_country_to_pass,
+            gender_adv=gender_to_pass,
+            study_type_from_sidebar=study_type_ui,
+            masking_type_post_filter=masking_to_pass,
+            intervention_model_post_filter=intervention_model_to_pass,
+            max_results=max_results_per_source
+        )
+        st.session_state['ct_results'] = ct_results
  
-
         # Use a dictionary to store the best version of each trial, keyed by NCT ID
         # This handles duplicates and prioritizes PMC articles.
         unified_trials = {}
