@@ -3,6 +3,43 @@ import requests
 import xmltodict
 import json
 import re
+import os
+
+# --- NEW HELPER FUNCTION TO GENERATE CONTEXT ---
+def generate_project_context():
+    """
+    Scans the project directory, reads all .py files,
+    and combines them into a single formatted string for context.
+    """
+    context_parts = []
+    # Get the root directory of the Streamlit app
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Walk through the directory tree
+    for dirpath, dirnames, filenames in os.walk(root_dir):
+        # Exclude virtual environment folders
+        if 'venv' in dirpath or '.venv' in dirpath:
+            continue
+            
+        for filename in filenames:
+            if filename.endswith(".py"):
+                # Construct the full file path
+                file_path = os.path.join(dirpath, filename)
+                # Create a relative path for cleaner display
+                relative_path = os.path.relpath(file_path, root_dir)
+                
+                header = f"================================\nFile: {relative_path.replace(os.sep, '/')}\n================================\n\n"
+                context_parts.append(header)
+                
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        context_parts.append(f.read())
+                    context_parts.append("\n\n")
+                except Exception as e:
+                    context_parts.append(f"Error reading file: {str(e)}\n\n")
+                    
+    return "".join(context_parts)
+# --- END NEW HELPER FUNCTION ---
 
 # --- NEW: Initialize session state ---
 if 'pubmed_results' not in st.session_state:
@@ -549,3 +586,18 @@ for db in OTHER_DATABASES:
     st.sidebar.markdown(f"[{db['name']}]({db['url']})")
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Respect API terms of service.")
+# --- NEW: Add Context File Generator to Sidebar ---
+st.sidebar.markdown("---")
+st.sidebar.header("Project Context Generator")
+
+# Generate the context string by calling the helper function
+project_context_string = generate_project_context()
+
+st.sidebar.download_button(
+    label="📥 Download Context File",
+    data=project_context_string,
+    file_name="project_context.txt",
+    mime="text/plain",
+    help="Click to download all relevant .py files combined into a single text file. Provide this file in your next prompt."
+)
+# --- END NEW ---
