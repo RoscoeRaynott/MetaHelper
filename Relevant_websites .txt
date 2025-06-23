@@ -1,1 +1,22 @@
 https://www.clinicaltrials.gov/data-api/api#get-/studies
+
+#Prompt for continue:
+
+Here is the full context of my multi-page Streamlit application. The goal of the project is to build a RAG (Retrieval-Augmented Generation) pipeline to analyze medical research papers.
+Current Status:
+AI4_1.py (Main Page): This page successfully searches PubMed and ClinicalTrials.gov, de-duplicates the results, and saves a list of "RAG-ready" URLs into st.session_state['links_for_rag'].
+data_ingestor.py (Module 1): This module is complete. It takes a URL, fetches the full text content (either via API for ClinicalTrials.gov or scraping for PubMed Central), parses it into clean text, and splits it into semantic chunks.
+pages/2_Analyze_Papers.py (Analysis Page): This page currently uses data_ingestor.py to process a single link and verify that the text extraction and chunking (Step 1 of the RAG pipeline) works correctly.
+Next Steps (The RAG Pipeline Plan):
+We have already planned the next two modules for the RAG pipeline:
+Module 2 (vector_store_manager.py): The "Card Catalog." This module will be responsible for taking the text chunks, creating vector embeddings using an embedding model (e.g., from OpenAI), and storing them in a local vector database (e.g., ChromaDB).
+Module 3 (query_handler.py): The "Researcher." This module will take a user's question, retrieve relevant chunks from the vector store, and use an LLM to generate an answer based on the retrieved context.
+My Request:
+Based on the full code context below, please help me implement Module 2 (vector_store_manager.py).
+I need you to:
+Provide the code for the new vector_store_manager.py file.
+Tell me the precise, line-by-line changes needed for pages/2_Analyze_Papers.py to integrate this new module, so I can create and manage the vector store.
+List any new dependencies I need to add to requirements.txt and any secrets I need to add to .streamlit/secrets.toml.
+--- START OF FILE project_context.txt ---
+[...PASTE THE ENTIRE CONTENTS OF YOUR project_context.txt FILE HERE...]
+--- END OF FILE project_context.txt ---
