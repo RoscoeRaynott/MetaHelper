@@ -623,20 +623,20 @@ if st.sidebar.button("Search"):
         else:
             st.write("No results found based on the criteria or an error occurred during search.")
         
-# --- Section to Prepare Links for RAG Analysis Page ---
-st.markdown("---")
-st.header("Prepare for Analysis")
-
-# This part now uses the de-duplicated 'unified_results' list
-all_rag_candidate_links = [res['link'] for res in unified_results if res.get('is_rag_candidate')]
-    
-if all_rag_candidate_links:
-    st.write(f"Found {len(all_rag_candidate_links)} unique RAG-ready links.")
-    if st.button("Prepare These Links for Analysis"):
-        st.session_state['links_for_rag'] = all_rag_candidate_links
-        st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
-else:
-    st.warning("No RAG-ready links were found in this search.")
+        # --- Section to Prepare Links for RAG Analysis Page ---
+        st.markdown("---")
+        st.header("Prepare for Analysis")
+        
+        # This part now uses the de-duplicated 'unified_results' list
+        all_rag_candidate_links = [res['link'] for res in unified_results if res.get('is_rag_candidate')]
+            
+        if all_rag_candidate_links:
+            st.write(f"Found {len(all_rag_candidate_links)} unique RAG-ready links.")
+            if st.button("Prepare These Links for Analysis"):
+                st.session_state['links_for_rag'] = all_rag_candidate_links
+                st.success(f"✅ {len(all_rag_candidate_links)} links saved! Navigate to the 'Analyze Papers' page from the sidebar to process them.")
+        else:
+            st.warning("No RAG-ready links were found in this search.")
 
 
 
