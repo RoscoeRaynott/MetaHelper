@@ -25,7 +25,7 @@ def get_embedding_model():
         # --- THIS IS THE KEY CHANGE ---
         # We use the OpenAIEmbeddings class, but configure it for OpenRouter.
         openrouter_embeddings = OpenAIEmbeddings(
-            model="text-embedding-ada-002", # A model available on OpenRouter
+            model="sentence-transformers/all-minilm-l6-v2", # A model available on OpenRouter
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1", # This points the request to OpenRouter
             # The following are not strictly needed but good practice
