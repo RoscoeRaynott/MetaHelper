@@ -9,6 +9,4 @@ langchain
 langchain-community
 chromadb
 tiktoken
-langchain-openai  # <-- ADD THIS (Best practice for later)
-langchain-openrouter==0.1.15 # <-- ADD THIS (The specific fix)
-pydantic<2
+langchain-openai  # This is the key package we will use
