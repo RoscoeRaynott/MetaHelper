@@ -11,3 +11,4 @@ chromadb
 tiktoken
 langchain-openai  # <-- ADD THIS (Best practice for later)
 langchain-openrouter # <-- ADD THIS (The specific fix)
+pydantic<2
