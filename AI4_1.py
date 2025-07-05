@@ -1,3 +1,9 @@
+# --- FIX for sqlite3 version on Streamlit Cloud ---
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+# --- END FIX ---
+
 import streamlit as st
 import requests
 import xmltodict
