@@ -4,6 +4,7 @@ import streamlit as st
 import os
 from data_ingestor import process_single_link
 from vector_store_manager import create_vector_store, load_vector_store
+import time
 
 st.set_page_config(layout="wide")
 st.title("📄 Paper Analysis and Vector Store Management")
@@ -65,13 +66,16 @@ if st.session_state.get('processed_chunks'):
             st.write(chunk)
 
     if st.button("Add Chunks to Knowledge Library"):
+        start_time = time.time()
         with st.spinner("Embedding chunks via OpenRouter and updating vector store..."):
             vs, status = create_vector_store(
                 st.session_state['processed_chunks'], 
                 st.session_state['processed_link']
             )
+            end_time = time.time()
+            duration = end_time - start_time
             if vs:
-                st.success(status)
+                st.success(f"{status} (Took {duration:.2f} seconds)")
                 st.session_state['processed_text'] = None
                 st.session_state['processed_chunks'] = None
                 st.session_state['processed_link'] = ""
