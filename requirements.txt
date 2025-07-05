@@ -4,3 +4,6 @@ xmltodict
 beautifulsoup4
 PyPDF2
 langchain
+langchain-community  
+chromadb             
+tiktoken             
