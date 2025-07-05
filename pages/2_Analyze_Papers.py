@@ -10,6 +10,17 @@ st.set_page_config(layout="wide")
 st.title("📄 Paper Analysis and Vector Store Management")
 st.markdown("Process individual papers and add their content to a searchable knowledge library (Vector Store).")
 
+# --- NEW: Display persisted status messages ---
+if "status_message" in st.session_state and st.session_state.status_message:
+    message_type, text = st.session_state.status_message
+    if message_type == "success":
+        st.success(text)
+    elif message_type == "error":
+        st.error(text)
+    # Clear the message after displaying it so it doesn't show up again
+    del st.session_state.status_message
+# --- END NEW ---
+
 # --- Initialize session state for this page ---
 if 'processed_text' not in st.session_state:
     st.session_state['processed_text'] = None
@@ -75,7 +86,8 @@ if st.session_state.get('processed_chunks'):
             end_time = time.time()
             duration = end_time - start_time
             if vs:
-                st.success(f"{status} (Took {duration:.2f} seconds)")
+                success_message = f"{status} (Took {duration:.2f} seconds)"
+                st.session_state.status_message = ("success", success_message)
                 st.session_state['processed_text'] = None
                 st.session_state['processed_chunks'] = None
                 st.session_state['processed_link'] = ""
