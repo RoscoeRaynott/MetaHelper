@@ -11,3 +11,4 @@ chromadb
 tiktoken
 langchain-openai  # This is the key package we will use
 protobuf==3.20.3
+pysqlite3-binary
