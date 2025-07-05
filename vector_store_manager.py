@@ -3,7 +3,7 @@
 import streamlit as st
 import os
 # --- NEW: Import OpenRouter-specific embedding class ---
-from langchain_community.embeddings import OpenRouterEmbeddings
+from langchain_openrouter import OpenRouterEmbeddings
 # --- END NEW ---
 from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
