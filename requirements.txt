@@ -1,9 +1,13 @@
+# requirements.txt
+
 streamlit
 requests
 xmltodict
 beautifulsoup4
 PyPDF2
 langchain
-langchain-community  
-chromadb             
-tiktoken             
+langchain-community
+chromadb
+tiktoken
+langchain-openai  # <-- ADD THIS (Best practice for later)
+langchain-openrouter # <-- ADD THIS (The specific fix)
