@@ -16,7 +16,7 @@ class DirectHuggingFaceEmbeddings(Embeddings):
         self.api_key = api_key
         self.model_name = model_name
         # --- THE FIX: Use the correct router endpoint you discovered ---
-        self.api_url = f"https://router.huggingface.co/hf-inference/feature-extraction/{self.model_name}"
+        self.api_url = f"https://router.huggingface.co/hf-inference/models/{self.model_name}/pipeline/feature-extraction"
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
