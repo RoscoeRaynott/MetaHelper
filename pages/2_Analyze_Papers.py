@@ -1,43 +1,80 @@
+# pages/2_Analyze_Papers.py
+
 import streamlit as st
-from data_ingestor import process_single_link  # Import our new function
+import os
+from data_ingestor import process_single_link
+from vector_store_manager import create_vector_store, load_vector_store
 
 st.set_page_config(layout="wide")
-st.title("📄 Paper Analysis and Ingestion")
-st.markdown("This page allows you to process the papers found on the search page.")
+st.title("📄 Paper Analysis and Vector Store Management")
+st.markdown("Process individual papers and add their content to a searchable knowledge library (Vector Store).")
 
-# --- 1. Link Selection UI ---
-st.header("1. Select a Link to Process")
+# --- Initialize session state for this page ---
+if 'processed_text' not in st.session_state:
+    st.session_state['processed_text'] = None
+if 'processed_chunks' not in st.session_state:
+    st.session_state['processed_chunks'] = None
+if 'processed_link' not in st.session_state:
+    st.session_state['processed_link'] = ""
 
-# Check if links were saved from the main page
+# --- 1. Vector Store Management UI ---
+st.header("1. Knowledge Library Status")
+
+vector_store = load_vector_store()
+if vector_store:
+    doc_count = vector_store._collection.count()
+    st.success(f"✅ Vector Store is active and contains {doc_count} document chunks.")
+else:
+    st.warning("⚠️ No Vector Store found. Process a document below and add it to create one.")
+
+# --- 2. Link Selection and Processing UI ---
+st.markdown("---")
+st.header("2. Select and Process a Link")
+
 if 'links_for_rag' not in st.session_state or not st.session_state['links_for_rag']:
-    st.warning("No links have been prepared for analysis. Please go to the 'RAG-Ready Medical Research Finder' page, perform a search, and click 'Prepare Links for Analysis' first.")
-    st.write(f"Debug: Current st.session_state['links_for_rag'] = {st.session_state.get('links_for_rag', 'Not set')}")
+    st.warning("No links prepared. Go to the main search page to find and prepare links first.")
 else:
     links = st.session_state['links_for_rag']
     st.info(f"Found {len(links)} links prepared from the search page.")
     
-    # Create a dropdown to select one link
-    selected_link = st.selectbox("Choose a link to process and verify:", options=links)
+    selected_link = st.selectbox("Choose a link to process:", options=links)
 
-    # --- 2. Processing and Verification UI ---
-    if selected_link:
-        st.header("2. Process and Verify")
-        if st.button(f"Process: {selected_link}"):
-            # Add user feedback
-            if "clinicaltrials.gov/study" in selected_link:
-                st.info("Using ClinicalTrials.gov API to fetch full study record...")
-            elif "ncbi.nlm.nih.gov/pmc/articles" in selected_link:
-                st.info("Using standard request to fetch static content from PubMed Central...")
-            with st.spinner(f"Fetching and parsing content from the selected link..."):
-                full_text, text_chunks = process_single_link(selected_link)
+    if st.button(f"Process Link"):
+        with st.spinner(f"Fetching and parsing content from {selected_link}..."):
+            full_text, text_chunks = process_single_link(selected_link)
             if full_text and text_chunks:
-                st.success("Successfully processed the document!")
-                st.subheader("Extracted Full Text (Cleaned)")
-                st.text_area("Full Text", full_text, height=300)
-                st.subheader(f"Text Chunks ({len(text_chunks)} chunks created)")
-                st.write("These are the small pieces of text that will be converted into vectors for the RAG pipeline.")
-                for i, chunk in enumerate(text_chunks[:3]):
-                    with st.expander(f"Chunk {i+1} (First 100 characters: '{chunk[:100].strip()}')"):
-                        st.write(chunk)
+                st.session_state['processed_text'] = full_text
+                st.session_state['processed_chunks'] = text_chunks
+                st.session_state['processed_link'] = selected_link
+                st.success("Successfully processed the document! You can now add it to the Vector Store below.")
             else:
                 st.error(f"Failed to process the link. Reason: {text_chunks}")
+                st.session_state['processed_text'] = None
+                st.session_state['processed_chunks'] = None
+                st.session_state['processed_link'] = ""
+
+# --- 3. Display and Add to Vector Store ---
+if st.session_state.get('processed_chunks'):
+    st.markdown("---")
+    st.header("3. Add Processed Document to Knowledge Library")
+    
+    st.subheader("Extracted Text Chunks (Preview)")
+    st.write(f"The following document produced **{len(st.session_state['processed_chunks'])}** text chunks.")
+    for i, chunk in enumerate(st.session_state['processed_chunks'][:3]):
+        with st.expander(f"Chunk {i+1} (First 100 characters: '{chunk[:100].strip()}...')"):
+            st.write(chunk)
+
+    if st.button("Add Chunks to Knowledge Library"):
+        with st.spinner("Embedding chunks via OpenRouter and updating vector store..."):
+            vs, status = create_vector_store(
+                st.session_state['processed_chunks'], 
+                st.session_state['processed_link']
+            )
+            if vs:
+                st.success(status)
+                st.session_state['processed_text'] = None
+                st.session_state['processed_chunks'] = None
+                st.session_state['processed_link'] = ""
+                st.rerun()
+            else:
+                st.error(status)
