@@ -1,3 +1,9 @@
+# --- FIX for sqlite3 version on Streamlit Cloud ---
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+# --- END FIX ---
+
 import streamlit as st
 import requests
 import xmltodict
@@ -19,7 +25,8 @@ def generate_project_context():
         "AI4_1.py",             # Assuming this is your main app file in the root
         "data_ingestor.py",   # Assuming this is in the root
         "pages/2_Analyze_Papers.py", # Example of how to add a file from a subfolder
-        "requirements.txt"
+        "requirements.txt",
+        "vector_store_manager.py"
     ]
     # --- END EDIT ---
 
