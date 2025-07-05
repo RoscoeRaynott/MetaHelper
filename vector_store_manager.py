@@ -82,7 +82,7 @@ class CustomHuggingFaceEmbeddings(Embeddings):
         self.api_key = api_key
         self.model_name = model_name
         # --- THE FIX: Explicitly use the "feature-extraction" pipeline endpoint ---
-        self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{self.model_name}"
+        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
         self.headers = {"Authorization": f"Bearer {self.api_key}"}
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
