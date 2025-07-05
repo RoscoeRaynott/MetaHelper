@@ -14,28 +14,23 @@ VECTOR_STORE_PATH = "./chroma_db"
 @st.cache_resource
 def get_embedding_model():
     """
-    Initializes an embedding model compatible with OpenRouter's API.
-    It uses the OpenAIEmbeddings class but points it to the OpenRouter endpoint.
+    Initializes and returns the Hugging Face embedding model.
     """
-    if "OPENROUTER_API_KEY" not in st.secrets:
-        st.error("OPENROUTER_API_KEY not found in Streamlit secrets. Please add it.")
+    if "HUGGINGFACE_API_TOKEN" not in st.secrets:
+        st.error("HUGGINGFACE_API_TOKEN not found in Streamlit secrets. Please add it.")
         return None
 
     try:
-        # --- THIS IS THE KEY CHANGE ---
-        # We use the OpenAIEmbeddings class, but configure it for OpenRouter.
-        openrouter_embeddings = OpenAIEmbeddings(
-            model="nomic-ai/nomic-embed-text-v1.5", # A model available on OpenRouter
-            openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
-            openai_api_base="https://openrouter.ai/api/v1", # This points the request to OpenRouter
-            # The following are not strictly needed but good practice
-            request_timeout=30,
-            max_retries=3
+        # Use the superior BGE model for better retrieval performance.
+        model_name = "BAAI/bge-small-en-v1.5"
+        
+        hf_embeddings = HuggingFaceInferenceAPIEmbeddings(
+            api_key=st.secrets.get("HUGGINGFACE_API_TOKEN"),
+            model_name=model_name,
         )
-        # --- END KEY CHANGE ---
-        return openrouter_embeddings
+        return hf_embeddings
     except Exception as e:
-        st.error(f"Failed to initialize embedding model via OpenRouter: {e}")
+        st.error(f"Failed to initialize Hugging Face embedding model: {e}")
         return None
 
 # The rest of the functions in this file (create_vector_store, load_vector_store)
