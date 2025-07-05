@@ -46,20 +46,20 @@ class DirectHuggingFaceEmbeddings(Embeddings):
             return None
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Embed a list of documents."""
-        # The free inference API can sometimes handle only one input at a time.
-        # We process texts one by one for maximum stability.
-        embeddings_list = []
-        for text in texts:
-            # Add a small delay to be respectful to the free API tier
-            time.sleep(0.1)
-            result = self._embed([text]) # Send as a list with one item
-            if result:
-                embeddings_list.append(result[0])
-            else:
-                st.error(f"Failed to get embedding for text: '{text[:100]}...'")
-                return None # Signal failure
-        return embeddings_list
+        """
+        Embed a list of documents by sending them all in a single API call (batching).
+        This is much faster than one-by-one processing.
+        """
+        # The _embed function is already designed to handle a list of texts.
+        # We can simply call it directly with the full list.
+        embeddings = self._embed(texts)
+        
+        if embeddings and len(embeddings) == len(texts):
+            return embeddings
+        else:
+            # If the call fails or returns a mismatched number of embeddings, return None.
+            st.error("Failed to generate embeddings for the batch of documents.")
+            return None
 
     def embed_query(self, text: str) -> list[float]:
         """Embed a single query."""
