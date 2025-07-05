@@ -1,10 +1,10 @@
-# vector_store_manager.py
+# vector_store_manager.py (Corrected)
 
 import streamlit as st
 import os
-# --- NEW: Import OpenRouter-specific embedding class ---
-from langchain_openrouter import OpenRouterEmbeddings
-# --- END NEW ---
+# --- CORRECTED IMPORT: Use the official OpenAI class ---
+from langchain_openai import OpenAIEmbeddings
+# --- END CORRECTION ---
 from langchain_community.vectorstores import Chroma
 from langchain.docstore.document import Document
 
@@ -14,31 +14,33 @@ VECTOR_STORE_PATH = "./chroma_db"
 @st.cache_resource
 def get_embedding_model():
     """
-    Initializes and returns the OpenRouter embedding model.
-    Caches the model to avoid re-initializing on every script rerun.
+    Initializes an embedding model compatible with OpenRouter's API.
+    It uses the OpenAIEmbeddings class but points it to the OpenRouter endpoint.
     """
-    # Check if the key exists in secrets
     if "Openrouter_API_key" not in st.secrets:
         st.error("Openrouter_API_key not found in Streamlit secrets. Please add it.")
         return None
 
     try:
-        # Initialize OpenRouterEmbeddings, specifying a model if desired.
-        # "text-embedding-ada-002" is a common and effective choice available on OpenRouter.
-        # The library will automatically use the 'OPENROUTER_API_KEY' environment variable.
-        embeddings = OpenRouterEmbeddings(
-            openrouter_api_key=st.secrets.get("Openrouter_API_key"),
-            model_name="openai/text-embedding-ada-002" # You can change this to other models OpenRouter supports
+        # --- THIS IS THE KEY CHANGE ---
+        # We use the OpenAIEmbeddings class, but configure it for OpenRouter.
+        openrouter_embeddings = OpenAIEmbeddings(
+            model="openai/text-embedding-ada-002", # A model available on OpenRouter
+            openai_api_key=st.secrets.get("Openrouter_API_key"),
+            openai_api_base="https://openrouter.ai/api/v1", # This points the request to OpenRouter
+            # The following are not strictly needed but good practice
+            request_timeout=30,
+            max_retries=3
         )
-        return embeddings
+        # --- END KEY CHANGE ---
+        return openrouter_embeddings
     except Exception as e:
-        st.error(f"Failed to initialize OpenRouter embedding model: {e}")
+        st.error(f"Failed to initialize embedding model via OpenRouter: {e}")
         return None
 
+# The rest of the functions in this file (create_vector_store, load_vector_store)
+# do not need any changes, as they just consume the embedding_model object.
 def create_vector_store(text_chunks, source_url):
-    """
-    Creates or updates a vector store from text chunks using OpenRouter embeddings.
-    """
     if not text_chunks:
         return None, "No text chunks provided to create the vector store."
 
@@ -52,7 +54,6 @@ def create_vector_store(text_chunks, source_url):
         if not embedding_model:
             return None, "Embedding model could not be initialized. Check API key."
         
-        # This part remains the same, it just uses the OpenRouter embedding function
         vector_store = Chroma(
             persist_directory=VECTOR_STORE_PATH,
             embedding_function=embedding_model
@@ -65,9 +66,6 @@ def create_vector_store(text_chunks, source_url):
         return None, f"Failed to create or update vector store: {e}"
 
 def load_vector_store():
-    """
-    Loads an existing vector store from disk.
-    """
     if not os.path.exists(VECTOR_STORE_PATH):
         return None
 
