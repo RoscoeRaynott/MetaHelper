@@ -17,8 +17,8 @@ def get_embedding_model():
     Initializes an embedding model compatible with OpenRouter's API.
     It uses the OpenAIEmbeddings class but points it to the OpenRouter endpoint.
     """
-    if "Openrouter_API_key" not in st.secrets:
-        st.error("Openrouter_API_key not found in Streamlit secrets. Please add it.")
+    if "OPENROUTER_API_KEY" not in st.secrets:
+        st.error("OPENROUTER_API_KEY not found in Streamlit secrets. Please add it.")
         return None
 
     try:
@@ -26,7 +26,7 @@ def get_embedding_model():
         # We use the OpenAIEmbeddings class, but configure it for OpenRouter.
         openrouter_embeddings = OpenAIEmbeddings(
             model="openai/text-embedding-ada-002", # A model available on OpenRouter
-            openai_api_key=st.secrets.get("Openrouter_API_key"),
+            openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1", # This points the request to OpenRouter
             # The following are not strictly needed but good practice
             request_timeout=30,
