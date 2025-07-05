@@ -10,3 +10,4 @@ langchain-community
 chromadb
 tiktoken
 langchain-openai  # This is the key package we will use
+protobuf==3.20.3
