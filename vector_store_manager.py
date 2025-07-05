@@ -12,7 +12,7 @@ import time
 # --- Custom Hugging Face Embedding Class ---
 # This class calls the API directly using the correct endpoint and payload.
 class DirectHuggingFaceEmbeddings(Embeddings):
-    def __init__(self, api_key: str, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, api_key: str, model_name: str = "BAAI/bge-small-en-v1.5"):#"sentence-transformers/all-MiniLM-L6-v2"):
         self.api_key = api_key
         self.model_name = model_name
         # --- THE FIX: Use the correct router endpoint you discovered ---
