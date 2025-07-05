@@ -22,7 +22,7 @@ def get_embedding_model():
 
     try:
         # Use the superior BGE model for better retrieval performance.
-        model_name = "BAAI/bge-small-en-v1.5"
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"#"BAAI/bge-small-en-v1.5"
         
         hf_embeddings = HuggingFaceInferenceAPIEmbeddings(
             api_key=st.secrets.get("HUGGINGFACE_API_TOKEN"),
