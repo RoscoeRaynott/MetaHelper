@@ -1,16 +1,13 @@
+# data_ingestor.py (NEW VERSION)
+
 import requests
 from bs4 import BeautifulSoup
 import re
 
 def fetch_content_from_url(url):
-    """
-    Fetches the raw HTML content from a given URL.
-    Returns the HTML content as a string, or None if fetching fails.
-    """
+    """Fetches the raw HTML content from a given URL."""
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
         return response.text
@@ -20,47 +17,54 @@ def fetch_content_from_url(url):
 
 def parse_pmc_article(html_content):
     """
-    Parses HTML from a PubMed Central article to extract title, abstract, and body.
-    Uses fallback selectors to handle website changes.
+    Parses HTML from a PubMed Central article and returns a list of (section, text) tuples.
     """
     if not html_content:
-        return "", "No HTML content provided."
+        return [], "No HTML content provided."
 
     soup = BeautifulSoup(html_content, 'html.parser')
+    sections_data = []
 
-    title_tag = (soup.find('h1', class_='content-title') or
-                 soup.find('h1') or
-                 soup.find('title'))
+    title_tag = (soup.find('h1', class_='content-title') or soup.find('h1') or soup.find('title'))
     title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
+    sections_data.append(("Title", title))
 
-    abstract_div = (soup.find('div', class_='abstract') or
-                    soup.find('div', id=re.compile('abstract.*', re.I)))
-    abstract = abstract_div.get_text(separator='\n', strip=True) if abstract_div else ""
+    abstract_div = (soup.find('div', class_='abstract') or soup.find('div', id=re.compile('abstract.*', re.I)))
+    if abstract_div:
+        sections_data.append(("Abstract", abstract_div.get_text(separator='\n', strip=True)))
 
-    body_div = (soup.find('div', class_='jig-ncbiinpagenav') or
-                soup.find('div', class_=re.compile('article.*', re.I)) or
-                soup.find('article'))
-    body_text = ""
+    body_div = (soup.find('div', class_='jig-ncbiinpagenav') or soup.find('div', class_=re.compile('article.*', re.I)) or soup.find('article'))
     if body_div:
-        sections = body_div.find_all('div', class_='sec') or body_div.find_all('section')
-        for sec in sections:
-            sec_title = sec.find(['h2', 'h3'])
-            if sec_title:
-                body_text += f"\n\n## {sec_title.get_text(strip=True)}\n\n"
+        top_level_sections = body_div.find_all(['div', 'section'], class_=['sec', None], recursive=False)
+        if not top_level_sections:
+            top_level_sections = body_div.find_all(['div', 'section'], class_='sec')
+
+        for sec in top_level_sections:
+            sec_title_tag = sec.find(['h2', 'h3'], recursive=False)
+            sec_title = sec_title_tag.get_text(strip=True) if sec_title_tag else "Unnamed Section"
+            
+            # Normalize common section titles
+            if "method" in sec_title.lower(): sec_title = "Methods"
+            elif "result" in sec_title.lower(): sec_title = "Results"
+            elif "discussion" in sec_title.lower() or "conclusion" in sec_title.lower(): sec_title = "Conclusion"
+            elif "introduction" in sec_title.lower(): sec_title = "Introduction"
+
+            sec_text = ""
             paragraphs = sec.find_all('p')
             for p in paragraphs:
-                body_text += p.get_text(strip=True) + "\n"
+                sec_text += p.get_text(strip=True) + "\n\n"
+            
+            if sec_text.strip():
+                sections_data.append((sec_title, sec_text.strip()))
 
-    full_text = f"# {title}\n\n## Abstract\n{abstract}\n{body_text}"
-    return full_text, "Success" if (abstract or body_text) else "No content parsed from PMC article."
+    return sections_data, "Success" if sections_data else "No content parsed."
 
 def parse_clinical_trial_record(nct_id):
     """
-    Fetches and parses a ClinicalTrials.gov study using the API v2 endpoint.
-    Returns structured text with title, summary, description, conditions, interventions, outcomes, results, and eligibility.
+    Fetches and parses a ClinicalTrials.gov study and returns a list of (section, text) tuples.
     """
     if not nct_id:
-        return "", "No NCT ID provided."
+        return [], "No NCT ID provided."
 
     api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
     try:
@@ -69,160 +73,95 @@ def parse_clinical_trial_record(nct_id):
         response.raise_for_status()
         data = response.json()
 
-        # Extract relevant fields
+        sections_data = []
         protocol = data.get('protocolSection', {})
+        
         title = protocol.get('identificationModule', {}).get('officialTitle') or protocol.get('identificationModule', {}).get('briefTitle', 'No Title Found')
-        summary = protocol.get('descriptionModule', {}).get('briefSummary', '')
-        detailed_description = protocol.get('descriptionModule', {}).get('detailedDescription', '')
-        conditions = protocol.get('conditionsModule', {}).get('conditions', [])
-        eligibility = protocol.get('eligibilityModule', {}).get('eligibilityCriteria', '')
-        status = protocol.get('statusModule', {}).get('overallStatus', 'N/A')
-        interventions = protocol.get('armsInterventionsModule', {}).get('interventions', [])
-        primary_outcomes = protocol.get('outcomesModule', {}).get('primaryOutcomes', [])
-        secondary_outcomes = protocol.get('outcomesModule', {}).get('secondaryOutcomes', [])
-        results = data.get('resultsSection', {})
+        sections_data.append(("Title", f"{title} (NCT ID: {nct_id})"))
 
-        # Format interventions
-        interventions_text = ''
-        for idx, interv in enumerate(interventions, 1):
-            interv_name = interv.get('name', 'Unknown')
-            interv_type = interv.get('type', 'Unknown')
-            interv_desc = interv.get('description', '')
-            interventions_text += f"Intervention {idx}: {interv_name} ({interv_type})\n{interv_desc}\n\n"
+        if protocol.get('statusModule', {}).get('overallStatus'):
+            sections_data.append(("Status", protocol['statusModule']['overallStatus']))
+        if protocol.get('descriptionModule', {}).get('briefSummary'):
+            sections_data.append(("Summary", protocol['descriptionModule']['briefSummary']))
+        if protocol.get('descriptionModule', {}).get('detailedDescription'):
+            sections_data.append(("Detailed Description", protocol['descriptionModule']['detailedDescription']))
+        if protocol.get('conditionsModule', {}).get('conditions'):
+            sections_data.append(("Conditions", '\n'.join(protocol['conditionsModule']['conditions'])))
+        if protocol.get('eligibilityModule', {}).get('eligibilityCriteria'):
+            sections_data.append(("Eligibility Criteria", protocol['eligibilityModule']['eligibilityCriteria']))
+        
+        outcomes_module = protocol.get('outcomesModule', {})
+        if outcomes_module:
+            outcomes_text = ""
+            primary = outcomes_module.get('primaryOutcomes', [])
+            secondary = outcomes_module.get('secondaryOutcomes', [])
+            if primary:
+                outcomes_text += "Primary Outcomes:\n" + "\n".join([f"- {o.get('measure', 'N/A')}" for o in primary])
+            if secondary:
+                outcomes_text += "\nSecondary Outcomes:\n" + "\n".join([f"- {o.get('measure', 'N/A')}" for o in secondary])
+            if outcomes_text:
+                sections_data.append(("Outcomes", outcomes_text))
 
-        # Format outcomes
-        outcomes_text = ''
-        if primary_outcomes:
-            outcomes_text += "Primary Outcomes:\n"
-            for idx, outcome in enumerate(primary_outcomes, 1):
-                measure = outcome.get('measure', 'N/A')
-                time_frame = outcome.get('timeFrame', 'N/A')
-                description = outcome.get('description', '')
-                outcomes_text += f"{idx}. {measure}\n  Time Frame: {time_frame}\n  Description: {description}\n\n"
-        if secondary_outcomes:
-            outcomes_text += "Secondary Outcomes:\n"
-            for idx, outcome in enumerate(secondary_outcomes, 1):
-                measure = outcome.get('measure', 'N/A')
-                time_frame = outcome.get('timeFrame', 'N/A')
-                description = outcome.get('description', '')
-                outcomes_text += f"{idx}. {measure}\n  Time Frame: {time_frame}\n  Description: {description}\n\n"
+        if data.get('resultsSection'):
+            sections_data.append(("Results", "Detailed results are available in the record's structured data."))
 
-        # Format results
-        results_text = ''
-        if results:
-            adverse_events = results.get('adverseEventsModule', {})
-            if adverse_events:
-                results_text += "Adverse Events:\n"
-                serious_events = adverse_events.get('seriousAdverseEvents', [])
-                other_events = adverse_events.get('otherAdverseEvents', [])
-                for event in serious_events + other_events:
-                    term = event.get('term', 'Unknown')
-                    count = event.get('eventCount', 'N/A')
-                    results_text += f"{term}: {count} events\n"
-            outcome_results = results.get('outcomeMeasuresModule', {})
-            if outcome_results:
-                results_text += "\nOutcome Results:\n"
-                for measure in outcome_results.get('outcomeMeasures', []):
-                    title = measure.get('title', 'Unknown')
-                    result_desc = measure.get('description', '')
-                    results_text += f"{title}\n{result_desc}\n"
+        return sections_data, "Success" if sections_data else "No content parsed."
 
-        # Build full text
-        full_text = f"# {title}\n(NCT ID: {nct_id})\n\n"
-        if status:
-            full_text += f"## Status\n{status}\n\n"
-        if summary:
-            full_text += f"## Summary\n{summary}\n\n"
-        if detailed_description:
-            full_text += f"## Detailed Description\n{detailed_description}\n\n"
-        if conditions:
-            full_text += f"## Conditions\n{'\n'.join(conditions)}\n\n"
-        if eligibility:
-            full_text += f"## Eligibility Criteria\n{eligibility}\n\n"
-        if interventions_text:
-            full_text += f"## Interventions\n{interventions_text}\n"
-        if outcomes_text:
-            full_text += f"## Outcomes\n{outcomes_text}\n"
-        if results_text:
-            full_text += f"## Results\n{results_text}\n"
-
-        content_found = any([summary, detailed_description, conditions, eligibility, interventions_text, outcomes_text, results_text])
-        status = "Success" if content_found else f"No content parsed from ClinicalTrials.gov API for NCT ID: {nct_id}"
-        print(f"Parse status for ClinicalTrials.gov (NCT ID: {nct_id}): {status}")
-
-        return full_text, status
-
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"API request failed for NCT ID {nct_id}: {e}")
-        return "", f"API request failed: {str(e)}"
-    except ValueError as e:  # Covers JSON decode errors
-        print(f"JSON decode error for NCT ID {nct_id}: {e}")
-        return "", f"JSON decode error: {str(e)}"
+        return [], f"API request failed: {str(e)}"
 
-def chunk_text(text, chunk_size=1500, chunk_overlap=200):
+def chunk_text(sections_data, chunk_size=1500, chunk_overlap=200):
     """
-    Splits text into semantic chunks based on markdown headings and paragraphs.
+    Splits text from sections into chunks, each with metadata about its source section.
     """
-    if not text:
+    if not sections_data:
         return []
     
-    chunks = []
-    current_chunk = ""
-    sections = re.split(r'(^## .*$)', text, flags=re.MULTILINE)
-    
-    for section in sections:
-        if not section.strip():
+    all_chunks = []
+    for section_title, section_text in sections_data:
+        if not section_text.strip():
             continue
-        paragraphs = section.split('\n\n')
+        
+        # Use the robust semantic chunker on a per-section basis
+        current_chunk = ""
+        paragraphs = section_text.split('\n\n')
         for para in paragraphs:
             if not para.strip():
                 continue
-            # Add paragraph to current chunk
             if len(current_chunk) + len(para) + 2 <= chunk_size:
                 current_chunk += para + "\n\n"
             else:
-                # Save current chunk with overlap
                 if current_chunk:
-                    chunks.append(current_chunk)
-                    # Start new chunk with overlap from previous
-                    overlap_start = max(0, len(current_chunk) - chunk_overlap)
-                    current_chunk = current_chunk[overlap_start:] + para + "\n\n"
-                else:
-                    # If paragraph is too long, split it
-                    start = 0
-                    while start < len(para):
-                        end = min(start + chunk_size, len(para))
-                        chunks.append(para[start:end])
-                        start += chunk_size - chunk_overlap
-                    current_chunk = para[start-chunk_overlap if start-chunk_overlap > 0 else 0:] + "\n\n"
-    
-    if current_chunk:
-        chunks.append(current_chunk)
-    
-    return chunks
+                    all_chunks.append({"text": current_chunk.strip(), "section": section_title})
+                current_chunk = para + "\n\n"
+        
+        if current_chunk.strip():
+            all_chunks.append({"text": current_chunk.strip(), "section": section_title})
+            
+    return all_chunks
 
 def process_single_link(url):
     """
-    Main controller function for this module.
-    Takes a single URL, fetches, parses, and chunks it.
+    Main controller function. Returns a displayable full text and a list of chunk dictionaries.
     """
-    print(f"Processing link: {url}")
+    sections_data = []
+    status = ""
     if "ncbi.nlm.nih.gov/pmc/articles" in url:
         html_content = fetch_content_from_url(url)
-        if not html_content:
-            return None, "Failed to fetch content."
-        clean_text, status = parse_pmc_article(html_content)
+        if not html_content: return None, "Failed to fetch content."
+        sections_data, status = parse_pmc_article(html_content)
     elif "clinicaltrials.gov/study" in url:
         nct_match = re.search(r'NCT\d+', url)
-        if not nct_match:
-            return None, "Could not extract NCT ID from URL."
-        nct_id = nct_match.group(0)
-        clean_text, status = parse_clinical_trial_record(nct_id)
+        if not nct_match: return None, "Could not extract NCT ID."
+        sections_data, status = parse_clinical_trial_record(nct_match.group(0))
     else:
-        return None, "URL is not a recognized PMC or ClinicalTrials.gov link."
+        return None, "Unrecognized URL."
 
-    if not clean_text:
+    if not sections_data:
         return None, status
 
-    text_chunks = chunk_text(clean_text)
-    return clean_text, text_chunks
+    text_chunks_with_metadata = chunk_text(sections_data)
+    full_text_for_display = "\n\n".join([f"## {title}\n\n{text}" for title, text in sections_data])
+    
+    return full_text_for_display, text_chunks_with_metadata
