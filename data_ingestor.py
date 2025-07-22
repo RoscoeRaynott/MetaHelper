@@ -17,7 +17,8 @@ def fetch_content_from_url(url):
 
 def parse_pmc_article(html_content):
     """
-    Parses HTML from a PubMed Central article and returns a list of (section, text) tuples.
+    Parses HTML from a PubMed Central article using a robust, header-based approach.
+    Returns a list of (section_title, section_text) tuples.
     """
     if not html_content:
         return [], "No HTML content provided."
@@ -25,40 +26,50 @@ def parse_pmc_article(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
     sections_data = []
 
+    # --- Title and Abstract (same as before, this part is reliable) ---
     title_tag = (soup.find('h1', class_='content-title') or soup.find('h1') or soup.find('title'))
     title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
     sections_data.append(("Title", title))
 
     abstract_div = (soup.find('div', class_='abstract') or soup.find('div', id=re.compile('abstract.*', re.I)))
     if abstract_div:
-        sections_data.append(("Abstract", abstract_div.get_text(separator='\n', strip=True)))
+        sections_data.append(("Abstract", abstract_div.get_text(separator='\n\n', strip=True)))
 
-    body_div = (soup.find('div', class_='jig-ncbiinpagenav') or soup.find('div', class_=re.compile('article.*', re.I)) or soup.find('article'))
+    # --- NEW, MORE ROBUST BODY PARSING ---
+    body_div = (soup.find('div', class_='jig-ncbiinpagenav') or 
+                soup.find('div', class_=re.compile('article.*', re.I)) or 
+                soup.find('article'))
+    
     if body_div:
-        top_level_sections = body_div.find_all(['div', 'section'], class_=['sec', None], recursive=False)
-        if not top_level_sections:
-            top_level_sections = body_div.find_all(['div', 'section'], class_='sec')
-
-        for sec in top_level_sections:
-            sec_title_tag = sec.find(['h2', 'h3'], recursive=False)
-            sec_title = sec_title_tag.get_text(strip=True) if sec_title_tag else "Unnamed Section"
+        current_section_title = "Introduction" # Assume first section is intro if no header found
+        current_section_text = ""
+        
+        # Find all header and paragraph tags in the order they appear
+        for element in body_div.find_all(['h2', 'h3', 'p']):
+            # If we find a new header, save the previous section and start a new one
+            if element.name in ['h2', 'h3']:
+                # Save the completed section if it has content
+                if current_section_text.strip():
+                    sections_data.append((current_section_title, current_section_text.strip()))
+                
+                # Start the new section
+                current_section_title = element.get_text(strip=True)
+                # Normalize common section titles
+                if "method" in current_section_title.lower(): current_section_title = "Methods"
+                elif "result" in current_section_title.lower(): current_section_title = "Results"
+                elif "discussion" in current_section_title.lower() or "conclusion" in current_section_title.lower(): current_section_title = "Conclusion"
+                
+                current_section_text = "" # Reset the text buffer
             
-            # Normalize common section titles
-            if "method" in sec_title.lower(): sec_title = "Methods"
-            elif "result" in sec_title.lower(): sec_title = "Results"
-            elif "discussion" in sec_title.lower() or "conclusion" in sec_title.lower(): sec_title = "Conclusion"
-            elif "introduction" in sec_title.lower(): sec_title = "Introduction"
+            # If we find a paragraph, add its text to the current section
+            elif element.name == 'p':
+                current_section_text += element.get_text(strip=True) + "\n\n"
+        
+        # After the loop, save the last remaining section
+        if current_section_text.strip():
+            sections_data.append((current_section_title, current_section_text.strip()))
 
-            sec_text = ""
-            paragraphs = sec.find_all('p')
-            for p in paragraphs:
-                sec_text += p.get_text(strip=True) + "\n\n"
-            
-            if sec_text.strip():
-                sections_data.append((sec_title, sec_text.strip()))
-
-    return sections_data, "Success" if sections_data else "No content parsed."
-
+    return sections_data, "Success" if len(sections_data) > 2 else "Warning: Only title and abstract were parsed."
 def parse_clinical_trial_record(nct_id):
     """
     Fetches and parses a ClinicalTrials.gov study and returns a list of (section, text) tuples.
