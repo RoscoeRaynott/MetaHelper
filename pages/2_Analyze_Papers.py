@@ -72,9 +72,14 @@ if st.session_state.get('processed_chunks'):
     
     st.subheader("Extracted Text Chunks (Preview)")
     st.write(f"The following document produced **{len(st.session_state['processed_chunks'])}** text chunks.")
-    for i, chunk in enumerate(st.session_state['processed_chunks'][:3]):
-        with st.expander(f"Chunk {i+1} (First 100 characters: '{chunk[:100].strip()}...')"):
-            st.write(chunk)
+    for i, chunk_data in enumerate(st.session_state['processed_chunks'][:3]):
+        chunk_text = chunk_data.get("text", "")
+        chunk_section = chunk_data.get("section", "Unknown")
+        expander_title = f"Chunk {i+1} from Section: '{chunk_section}' (First 100 chars: '{chunk_text[:100].strip()}...')"
+        with st.expander(expander_title):
+            st.write(f"**Section:** {chunk_section}")
+            st.markdown("---")
+            st.write(chunk_text)
 
     if st.button("Add Chunks to Knowledge Library"):
         start_time = time.time()
