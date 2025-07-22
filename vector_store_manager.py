@@ -4,7 +4,8 @@ import streamlit as st
 import os
 import requests
 import json
-from langchain_community.vectorstores import Chroma
+#from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain.docstore.document import Document
 from langchain.embeddings.base import Embeddings
 import time
@@ -88,15 +89,33 @@ def get_embedding_model():
 def create_vector_store(text_chunks, source_url):
     if not text_chunks:
         return None, "No text chunks provided."
-    documents = [Document(page_content=chunk, metadata={"source": source_url}) for chunk in text_chunks]
+    
+    # This now handles the list of dictionaries from the new data_ingestor
+    documents = [
+        Document(
+            page_content=chunk["text"], 
+            metadata={
+                "source": source_url,
+                "section": chunk.get("section", "Unknown") # Add the section metadata
+            }
+        )
+        for chunk in text_chunks
+    ]
+    
     try:
         embedding_model = get_embedding_model()
         if not embedding_model:
             return None, "Embedding model could not be initialized."
         
-        vector_store = Chroma(persist_directory=VECTOR_STORE_PATH, embedding_function=embedding_model)
+        # Chroma now automatically persists when documents are added
+        vector_store = Chroma(
+            persist_directory=VECTOR_STORE_PATH, 
+            embedding_function=embedding_model
+        )
         vector_store.add_documents(documents)
-        vector_store.persist()
+        
+        # The .persist() call is no longer needed and has been removed.
+        
         return vector_store, f"Added {len(documents)} chunks to vector store."
     except Exception as e:
         return None, f"Failed to create/update vector store: {e}"
