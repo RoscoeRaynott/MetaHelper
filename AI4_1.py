@@ -26,7 +26,8 @@ def generate_project_context():
         "data_ingestor.py",   # Assuming this is in the root
         "pages/2_Analyze_Papers.py", # Example of how to add a file from a subfolder
         "requirements.txt",
-        "vector_store_manager.py"
+        "vector_store_manager.py",
+        "query_handler.py"
     ]
     # --- END EDIT ---
 
