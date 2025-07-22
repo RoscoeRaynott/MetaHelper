@@ -9,14 +9,14 @@ from vector_store_manager import load_vector_store
 @st.cache_resource
 def get_llm():
     """Initializes the LLM for question answering, configured for OpenRouter."""
-    if "Openrouter_API_key" not in st.secrets:
+    if "OPENROUTER_API_KEY" not in st.secrets:
         st.error("Openrouter_API_key not found in Streamlit secrets. Please add it.")
         return None
     try:
         # Use a model known for strong instruction-following and JSON capabilities
         llm = ChatOpenAI(
             model_name="meta-llama/llama-3-8b-instruct",
-            openai_api_key=st.secrets.get("Openrouter_API_key"),
+            openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0, # Crucial for factual, non-creative extraction
             max_tokens=1024,
