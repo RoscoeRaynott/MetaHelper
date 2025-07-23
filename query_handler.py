@@ -33,9 +33,9 @@ def discover_metrics_in_doc(source_url):
     """
     Performs a RAG query on a single document to find all quantifiable metrics.
     """
-    vector_store = load_vector_store()
+    vector_store = st.session_state.get('vector_store', None)
     if not vector_store:
-        return None, "Vector Store not found."
+        return None, "Vector Store not found in session. Please process and add documents first."
 
     llm = get_llm()
     if not llm:
