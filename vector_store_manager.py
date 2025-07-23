@@ -4,6 +4,7 @@ import streamlit as st
 import os
 import requests
 import json
+import shutil
 #from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
 from langchain.docstore.document import Document
@@ -131,3 +132,15 @@ def load_vector_store():
     except Exception as e:
         st.error(f"Failed to load vector store: {e}")
         return None
+
+def clear_vector_store():
+    """
+    Deletes the vector store directory from disk.
+    """
+    if os.path.exists(VECTOR_STORE_PATH):
+        try:
+            shutil.rmtree(VECTOR_STORE_PATH)
+            return True, "Knowledge Library successfully cleared."
+        except Exception as e:
+            return False, f"Error clearing knowledge library: {e}"
+    return True, "Knowledge Library is already empty."
