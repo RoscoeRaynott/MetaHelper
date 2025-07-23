@@ -1,10 +1,10 @@
 # vector_store_manager.py (Final Working Version)
 
 import streamlit as st
-import os
+#import os
 import requests
 import json
-import shutil
+#import shutil
 #from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
 from langchain.docstore.document import Document
@@ -70,37 +70,21 @@ class DirectHuggingFaceEmbeddings(Embeddings):
 
 # --- END Custom Class ---
 
-VECTOR_STORE_PATH = "./chroma_db"
+#VECTOR_STORE_PATH = "./chroma_db"
 
-@st.cache_resource
-def get_embedding_model():
-    """Initializes our custom Hugging Face embedding model."""
-    if "HUGGINGFACE_API_TOKEN" not in st.secrets:
-        st.error("HUGGINGFACE_API_TOKEN not found in Streamlit secrets.")
-        return None
-    try:
-        return DirectHuggingFaceEmbeddings(
-            api_key=st.secrets.get("HUGGINGFACE_API_TOKEN"),
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
-        )
-    except Exception as e:
-        st.error(f"Failed to initialize embedding model: {e}")
-        return None
-
-def create_vector_store(text_chunks, source_url):
+def create_in_memory_vector_store(text_chunks, source_url):
+    """
+    Creates a new in-memory vector store.
+    This will be stored in the user's session state.
+    """
     if not text_chunks:
         return None, "No text chunks provided."
     
-    # This now handles the list of dictionaries from the new data_ingestor
     documents = [
         Document(
             page_content=chunk["text"], 
-            metadata={
-                "source": source_url,
-                "section": chunk.get("section", "Unknown") # Add the section metadata
-            }
-        )
-        for chunk in text_chunks
+            metadata={"source": source_url, "section": chunk.get("section", "Unknown")}
+        ) for chunk in text_chunks
     ]
     
     try:
@@ -108,39 +92,48 @@ def create_vector_store(text_chunks, source_url):
         if not embedding_model:
             return None, "Embedding model could not be initialized."
         
-        # Chroma now automatically persists when documents are added
-        vector_store = Chroma(
-            persist_directory=VECTOR_STORE_PATH, 
-            embedding_function=embedding_model
+        # Create the vector store in memory by not providing a persist_directory
+        vector_store = Chroma.from_documents(
+            documents=documents,
+            embedding=embedding_model
         )
+        
+        # Store the entire vector store object in the session state
+        st.session_state['vector_store'] = vector_store
+        
+        return vector_store, f"Added {len(documents)} chunks to the in-memory knowledge library."
+    except Exception as e:
+        return None, f"Failed to create in-memory vector store: {e}"
+
+def add_to_in_memory_vector_store(text_chunks, source_url):
+    """
+    Adds new documents to an existing in-memory vector store.
+    """
+    if 'vector_store' not in st.session_state or st.session_state['vector_store'] is None:
+        # If no store exists, create a new one
+        return create_in_memory_vector_store(text_chunks, source_url)
+
+    if not text_chunks:
+        return None, "No text chunks provided."
+
+    documents = [
+        Document(
+            page_content=chunk["text"], 
+            metadata={"source": source_url, "section": chunk.get("section", "Unknown")}
+        ) for chunk in text_chunks
+    ]
+
+    try:
+        # Get the existing store from session state and add documents
+        vector_store = st.session_state['vector_store']
         vector_store.add_documents(documents)
         
-        # The .persist() call is no longer needed and has been removed.
-        
-        return vector_store, f"Added {len(documents)} chunks to vector store."
+        return vector_store, f"Added {len(documents)} chunks to the in-memory knowledge library."
     except Exception as e:
-        return None, f"Failed to create/update vector store: {e}"
+        return None, f"Failed to add to in-memory vector store: {e}"
 
-def load_vector_store():
-    if not os.path.exists(VECTOR_STORE_PATH):
-        return None
-    try:
-        embedding_model = get_embedding_model()
-        if not embedding_model:
-            return None
-        return Chroma(persist_directory=VECTOR_STORE_PATH, embedding_function=embedding_model)
-    except Exception as e:
-        st.error(f"Failed to load vector store: {e}")
-        return None
-
-def clear_vector_store():
-    """
-    Deletes the vector store directory from disk.
-    """
-    if os.path.exists(VECTOR_STORE_PATH):
-        try:
-            shutil.rmtree(VECTOR_STORE_PATH)
-            return True, "Knowledge Library successfully cleared."
-        except Exception as e:
-            return False, f"Error clearing knowledge library: {e}"
-    return True, "Knowledge Library is already empty."
+def clear_in_memory_vector_store():
+    """Clears the in-memory vector store from the session state."""
+    if 'vector_store' in st.session_state:
+        del st.session_state['vector_store']
+    return True, "In-memory knowledge library cleared."
