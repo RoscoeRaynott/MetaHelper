@@ -71,6 +71,20 @@ class DirectHuggingFaceEmbeddings(Embeddings):
 # --- END Custom Class ---
 
 #VECTOR_STORE_PATH = "./chroma_db"
+@st.cache_resource
+def get_embedding_model():
+    """Initializes our custom Hugging Face embedding model."""
+    if "HUGGINGFACE_API_TOKEN" not in st.secrets:
+        st.error("HUGGINGFACE_API_TOKEN not found in Streamlit secrets.")
+        return None
+    try:
+        return DirectHuggingFaceEmbeddings(
+            api_key=st.secrets.get("HUGGINGFACE_API_TOKEN"),
+            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        )
+    except Exception as e:
+        st.error(f"Failed to initialize embedding model: {e}")
+        return None
 
 def create_in_memory_vector_store(text_chunks, source_url):
     """
