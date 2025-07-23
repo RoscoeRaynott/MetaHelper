@@ -3,7 +3,8 @@
 import streamlit as st
 import os
 from data_ingestor import process_single_link
-from vector_store_manager import create_vector_store, load_vector_store, clear_vector_store
+from vector_store_manager import create_vector_store, load_vector_store
+from vector_store_manager import clear_vector_store
 import time
 
 st.set_page_config(layout="wide")
