@@ -115,10 +115,13 @@ def create_in_memory_vector_store(text_chunks, source_url):
         # --- END FIX ---
 
         # Create the vector store using the new, empty client
+        # Generate a unique collection name
+        collection_name = f"collection_{uuid.uuid4().hex}"
         vector_store = Chroma.from_documents(
             documents=documents,
             embedding=embedding_model,
-            client=client # Pass the ephemeral client to the constructor
+            client=client,
+            collection_name=collection_name  # Specify unique collection name
         )
         
         # Store the entire vector store object in the session state
