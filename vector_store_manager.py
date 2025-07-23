@@ -6,6 +6,7 @@ import streamlit as st
 #import os
 import requests
 import json
+import chromadb
 #import shutil
 #from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
@@ -90,7 +91,7 @@ def get_embedding_model():
 
 def create_in_memory_vector_store(text_chunks, source_url):
     """
-    Creates a new in-memory vector store.
+    Creates a new, truly ephemeral in-memory vector store.
     This will be stored in the user's session state.
     """
     if not text_chunks:
@@ -108,10 +109,16 @@ def create_in_memory_vector_store(text_chunks, source_url):
         if not embedding_model:
             return None, "Embedding model could not be initialized."
         
-        # Create the vector store in memory by not providing a persist_directory
+        # --- THE FIX: Create a truly ephemeral client ---
+        # This guarantees we get a fresh, empty database every time.
+        client = chromadb.EphemeralClient()
+        # --- END FIX ---
+
+        # Create the vector store using the new, empty client
         vector_store = Chroma.from_documents(
             documents=documents,
-            embedding=embedding_model
+            embedding=embedding_model,
+            client=client # Pass the ephemeral client to the constructor
         )
         
         # Store the entire vector store object in the session state
