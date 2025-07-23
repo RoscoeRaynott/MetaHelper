@@ -7,6 +7,7 @@ import streamlit as st
 import requests
 import json
 import chromadb
+import uuid
 #import shutil
 #from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
