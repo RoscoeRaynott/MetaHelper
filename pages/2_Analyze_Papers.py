@@ -79,8 +79,14 @@ if vector_store:
 
     if st.button("Clear Knowledge Library"):
         success, message = clear_in_memory_vector_store()
-        st.success(message)
-        st.rerun()
+        if success:
+            st.session_state['processed_text'] = None
+            st.session_state['processed_chunks'] = None
+            st.session_state['processed_link'] = ""
+            st.session_state.status_message = ("success", message)
+            st.rerun()  # <-- Force a UI refresh
+        else:
+            st.error(message)
 else:
     st.warning("⚠️ No Knowledge Library found for this session. Process and add a document below.")
 
