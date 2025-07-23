@@ -4,7 +4,7 @@ import streamlit as st
 import json
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
-from vector_store_manager import load_vector_store
+
 
 @st.cache_resource
 def get_llm():
