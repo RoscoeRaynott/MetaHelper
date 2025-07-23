@@ -156,7 +156,12 @@ def add_to_in_memory_vector_store(text_chunks, source_url):
         return None, f"Failed to add to in-memory vector store: {e}"
 
 def clear_in_memory_vector_store():
-    """Clears the in-memory vector store from the session state."""
+    # Remove the vector store from session
     if 'vector_store' in st.session_state:
         del st.session_state['vector_store']
-    return True, "In-memory knowledge library cleared."
+
+    # Also clean up other processing state
+    for key in ['processed_text', 'processed_chunks', 'processed_link']:
+        if key in st.session_state:
+            del st.session_state[key]
+    return True, "In-memory knowledge library cleared and reinitialized."
