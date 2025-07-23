@@ -3,7 +3,7 @@
 import streamlit as st
 import os
 from data_ingestor import process_single_link
-from vector_store_manager import create_vector_store, load_vector_store
+from vector_store_manager import create_vector_store, load_vector_store, clear_vector_store
 import time
 
 st.set_page_config(layout="wide")
@@ -35,9 +35,29 @@ st.header("1. Knowledge Library Status")
 vector_store = load_vector_store()
 if vector_store:
     doc_count = vector_store._collection.count()
-    st.success(f"✅ Vector Store is active and contains {doc_count} document chunks.")
+    st.success(f"✅ Knowledge Library is active and contains **{doc_count}** document chunks.")
+    
+    # Get the list of unique source documents in the library
+    all_docs_metadata = vector_store.get(include=["metadatas"])
+    sources_in_library = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+    
+    with st.expander("View documents currently in the library"):
+        for source in sources_in_library:
+            st.text(source)
+
+    if st.button("Clear Knowledge Library"):
+        success, message = clear_vector_store()
+        if success:
+            st.success(message)
+            # Clear any processed data from the session and rerun to reflect the change
+            st.session_state['processed_text'] = None
+            st.session_state['processed_chunks'] = None
+            st.session_state['processed_link'] = ""
+            st.rerun()
+        else:
+            st.error(message)
 else:
-    st.warning("⚠️ No Vector Store found. Process a document below and add it to create one.")
+    st.warning("⚠️ No Knowledge Library found. Process and add documents below to create one.")
 
 # --- 2. Link Selection and Processing UI ---
 st.markdown("---")
