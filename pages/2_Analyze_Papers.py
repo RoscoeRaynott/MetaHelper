@@ -1,15 +1,16 @@
 # pages/2_Analyze_Papers.py
 
 import streamlit as st
-import os
+#import os
 from data_ingestor import process_single_link
-from vector_store_manager import create_vector_store, load_vector_store
-from vector_store_manager import clear_vector_store
+# from vector_store_manager import create_vector_store, load_vector_store
+# from vector_store_manager import clear_vector_store
+from vector_store_manager import add_to_in_memory_vector_store, clear_in_memory_vector_store
 import time
 
 st.set_page_config(layout="wide")
-st.title("📄 Paper Analysis and Vector Store Management")
-st.markdown("Process individual papers and add their content to a searchable knowledge library (Vector Store).")
+st.title("📄 Paper Analysis and Ingestion")
+st.markdown("Process papers and add them to a temporary, in-memory knowledge library for this session.")
 
 # --- NEW: Display persisted status messages ---
 if "status_message" in st.session_state and st.session_state.status_message:
@@ -30,15 +31,45 @@ if 'processed_chunks' not in st.session_state:
 if 'processed_link' not in st.session_state:
     st.session_state['processed_link'] = ""
 
-# --- 1. Vector Store Management UI ---
+# # --- 1. Vector Store Management UI ---
+# st.header("1. Knowledge Library Status")
+
+# vector_store = load_vector_store()
+# if vector_store:
+#     doc_count = vector_store._collection.count()
+#     st.success(f"✅ Knowledge Library is active and contains **{doc_count}** document chunks.")
+    
+#     # Get the list of unique source documents in the library
+#     all_docs_metadata = vector_store.get(include=["metadatas"])
+#     sources_in_library = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+    
+#     with st.expander("View documents currently in the library"):
+#         for source in sources_in_library:
+#             st.text(source)
+
+#     if st.button("Clear Knowledge Library"):
+#         success, message = clear_vector_store()
+#         if success:
+#             st.success(message)
+#             # Clear any processed data from the session and rerun to reflect the change
+#             st.session_state['processed_text'] = None
+#             st.session_state['processed_chunks'] = None
+#             st.session_state['processed_link'] = ""
+#             st.rerun()
+#         else:
+#             st.error(message)
+# else:
+#     st.warning("⚠️ No Knowledge Library found. Process and add documents below to create one.")
+
+# --- 1. Knowledge Library Status ---
 st.header("1. Knowledge Library Status")
 
-vector_store = load_vector_store()
+# Load the store directly from session state
+vector_store = st.session_state.get('vector_store', None)
 if vector_store:
     doc_count = vector_store._collection.count()
-    st.success(f"✅ Knowledge Library is active and contains **{doc_count}** document chunks.")
+    st.success(f"✅ In-memory library is active and contains **{doc_count}** document chunks.")
     
-    # Get the list of unique source documents in the library
     all_docs_metadata = vector_store.get(include=["metadatas"])
     sources_in_library = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
     
@@ -47,18 +78,11 @@ if vector_store:
             st.text(source)
 
     if st.button("Clear Knowledge Library"):
-        success, message = clear_vector_store()
-        if success:
-            st.success(message)
-            # Clear any processed data from the session and rerun to reflect the change
-            st.session_state['processed_text'] = None
-            st.session_state['processed_chunks'] = None
-            st.session_state['processed_link'] = ""
-            st.rerun()
-        else:
-            st.error(message)
+        success, message = clear_in_memory_vector_store()
+        st.success(message)
+        st.rerun()
 else:
-    st.warning("⚠️ No Knowledge Library found. Process and add documents below to create one.")
+    st.warning("⚠️ No Knowledge Library found for this session. Process and add a document below.")
 
 # --- 2. Link Selection and Processing UI ---
 st.markdown("---")
@@ -105,7 +129,7 @@ if st.session_state.get('processed_chunks'):
     if st.button("Add Chunks to Knowledge Library"):
         start_time = time.time()
         with st.spinner("Embedding chunks via OpenRouter and updating vector store..."):
-            vs, status = create_vector_store(
+            vs, status = add_to_in_memory_vector_store(
                 st.session_state['processed_chunks'], 
                 st.session_state['processed_link']
             )
