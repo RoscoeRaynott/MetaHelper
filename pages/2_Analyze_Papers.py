@@ -168,7 +168,7 @@ if vector_store:
         if st.button("Find All Metrics in This Document"):
             with st.spinner(f"Scanning '{doc_to_analyze}' for all quantifiable metrics..."):
                 # Import and call our new function
-                from query_handler import discover_metrics_in_doc
+                from query_handler imt discover_metrics_in_doc
                 
                 discovered_metrics, status = discover_metrics_in_doc(doc_to_analyze)
             
@@ -177,7 +177,7 @@ if vector_store:
                 st.write("Discovered Metrics:")
                 st.dataframe(discovered_metrics)
             else:
-                st.error(status)
+                st.error(status)por
     else:
         st.info("Your Knowledge Library is empty. Add a document in Step 3 to begin.")
 else:
