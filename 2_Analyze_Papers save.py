@@ -1,14 +1,16 @@
 # pages/2_Analyze_Papers.py
 
 import streamlit as st
-import os
+#import os
 from data_ingestor import process_single_link
-from vector_store_manager import create_vector_store, load_vector_store
+# from vector_store_manager import create_vector_store, load_vector_store
+# from vector_store_manager import clear_vector_store
+from vector_store_manager import add_to_in_memory_vector_store, clear_in_memory_vector_store
 import time
 
 st.set_page_config(layout="wide")
-st.title("📄 Paper Analysis and Vector Store Management")
-st.markdown("Process individual papers and add their content to a searchable knowledge library (Vector Store).")
+st.title("📄 Paper Analysis and Ingestion")
+st.markdown("Process papers and add them to a temporary, in-memory knowledge library for this session.")
 
 # --- NEW: Display persisted status messages ---
 if "status_message" in st.session_state and st.session_state.status_message:
@@ -29,15 +31,64 @@ if 'processed_chunks' not in st.session_state:
 if 'processed_link' not in st.session_state:
     st.session_state['processed_link'] = ""
 
-# --- 1. Vector Store Management UI ---
+# # --- 1. Vector Store Management UI ---
+# st.header("1. Knowledge Library Status")
+
+# vector_store = load_vector_store()
+# if vector_store:
+#     doc_count = vector_store._collection.count()
+#     st.success(f"✅ Knowledge Library is active and contains **{doc_count}** document chunks.")
+    
+#     # Get the list of unique source documents in the library
+#     all_docs_metadata = vector_store.get(include=["metadatas"])
+#     sources_in_library = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+    
+#     with st.expander("View documents currently in the library"):
+#         for source in sources_in_library:
+#             st.text(source)
+
+#     if st.button("Clear Knowledge Library"):
+#         success, message = clear_vector_store()
+#         if success:
+#             st.success(message)
+#             # Clear any processed data from the session and rerun to reflect the change
+#             st.session_state['processed_text'] = None
+#             st.session_state['processed_chunks'] = None
+#             st.session_state['processed_link'] = ""
+#             st.rerun()
+#         else:
+#             st.error(message)
+# else:
+#     st.warning("⚠️ No Knowledge Library found. Process and add documents below to create one.")
+
+# --- 1. Knowledge Library Status ---
 st.header("1. Knowledge Library Status")
 
-vector_store = load_vector_store()
+# Load the store directly from session state
+vector_store = st.session_state.get('vector_store', None)
 if vector_store:
     doc_count = vector_store._collection.count()
-    st.success(f"✅ Vector Store is active and contains {doc_count} document chunks.")
+    st.success(f"✅ In-memory library is active and contains **{doc_count}** document chunks.")
+    
+    all_docs_metadata = vector_store.get(include=["metadatas"])
+    sources_in_library = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+    
+    with st.expander("View documents currently in the library"):
+        for source in sources_in_library:
+            st.text(source)
+
+    if st.button("Clear Knowledge Library"):
+        success, message = clear_in_memory_vector_store()
+        if success:
+            st.session_state['processed_text'] = None
+            st.session_state['processed_chunks'] = None
+            st.session_state['processed_link'] = ""
+            st.session_state.status_message = ("success", message)
+            st.rerun()  # <-- Force a UI refresh
+        else:
+            st.error(message)
 else:
-    st.warning("⚠️ No Vector Store found. Process a document below and add it to create one.")
+    st.warning("⚠️ No Knowledge Library found for this session. Process and add a document below.")
 
 # --- 2. Link Selection and Processing UI ---
 st.markdown("---")
@@ -72,14 +123,19 @@ if st.session_state.get('processed_chunks'):
     
     st.subheader("Extracted Text Chunks (Preview)")
     st.write(f"The following document produced **{len(st.session_state['processed_chunks'])}** text chunks.")
-    for i, chunk in enumerate(st.session_state['processed_chunks'][:3]):
-        with st.expander(f"Chunk {i+1} (First 100 characters: '{chunk[:100].strip()}...')"):
-            st.write(chunk)
+    for i, chunk_data in enumerate(st.session_state['processed_chunks'][:3]):
+        chunk_text = chunk_data.get("text", "")
+        chunk_section = chunk_data.get("section", "Unknown")
+        expander_title = f"Chunk {i+1} from Section: '{chunk_section}' (First 100 chars: '{chunk_text[:100].strip()}...')"
+        with st.expander(expander_title):
+            st.write(f"**Section:** {chunk_section}")
+            st.markdown("---")
+            st.write(chunk_text)
 
     if st.button("Add Chunks to Knowledge Library"):
         start_time = time.time()
         with st.spinner("Embedding chunks via OpenRouter and updating vector store..."):
-            vs, status = create_vector_store(
+            vs, status = add_to_in_memory_vector_store(
                 st.session_state['processed_chunks'], 
                 st.session_state['processed_link']
             )
@@ -94,3 +150,35 @@ if st.session_state.get('processed_chunks'):
                 st.rerun()
             else:
                 st.error(status)
+
+# --- 4. Discover Metrics in Documents ---
+st.markdown("---")
+st.header("4. Discover Available Metrics for Extraction")
+
+# This section is for testing our new discovery function on a single document
+if vector_store:
+    # Get a list of unique documents already in the store
+    all_docs_metadata = vector_store.get(include=["metadatas"])
+    unique_sources = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+    
+    if unique_sources:
+        st.info("Test the metric discovery process on a single document from your library.")
+        doc_to_analyze = st.selectbox("Select a document from your library to analyze:", options=unique_sources)
+        
+        if st.button("Find All Metrics in This Document"):
+            with st.spinner(f"Scanning '{doc_to_analyze}' for all quantifiable metrics..."):
+                # Import and call our new function
+                from query_handler imt discover_metrics_in_doc
+                
+                discovered_metrics, status = discover_metrics_in_doc(doc_to_analyze)
+            
+            if discovered_metrics is not None:
+                st.success(status)
+                st.write("Discovered Metrics:")
+                st.dataframe(discovered_metrics)
+            else:
+                st.error(status)por
+    else:
+        st.info("Your Knowledge Library is empty. Add a document in Step 3 to begin.")
+else:
+    st.info("You must create a Knowledge Library first (by adding a document in Step 3).")
