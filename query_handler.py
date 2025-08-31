@@ -15,7 +15,7 @@ def get_llm():
     try:
         # Use a model known for strong instruction-following and JSON capabilities
         llm = ChatOpenAI(
-            model_name="meta-llama/llama-3-8b-instruct",
+            model_name="anthropic/claude-3.5-sonnet" # "meta-llama/llama-3-8b-instruct",
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0, # Crucial for factual, non-creative extraction
