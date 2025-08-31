@@ -151,34 +151,39 @@ if st.session_state.get('processed_chunks'):
             else:
                 st.error(status)
 
-# --- 4. Discover Metrics in Documents ---
+# --- 4. Analyze Library and Select Metrics for Extraction ---
 st.markdown("---")
-st.header("4. Discover Available Metrics for Extraction")
+st.header("4. Analyze Library & Select Metrics for Table")
 
-# This section is for testing our new discovery function on a single document
+# Initialize a session state variable to hold the discovered metrics
+if 'discovered_metrics_df' not in st.session_state:
+    st.session_state.discovered_metrics_df = None
+
 if vector_store:
-    # Get a list of unique documents already in the store
-    all_docs_metadata = vector_store.get(include=["metadatas"])
-    unique_sources = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+    # --- Part A: Full Library Analysis ---
+    st.subheader("Analyze Full Library to Find Common Metrics")
+    st.write("This will scan all documents in your library to find the most common metrics available for extraction. This process can take several minutes depending on the number of documents.")
     
-    if unique_sources:
-        st.info("Test the metric discovery process on a single document from your library.")
-        doc_to_analyze = st.selectbox("Select a document from your library to analyze:", options=unique_sources)
-        
-        if st.button("Find All Metrics in This Document"):
-            with st.spinner(f"Scanning '{doc_to_analyze}' for all quantifiable metrics..."):
-                # Import and call our new function
-                from query_handler imt discover_metrics_in_doc
-                
-                discovered_metrics, status = discover_metrics_in_doc(doc_to_analyze)
+    if st.button("Analyze Library & Find Common Metrics"):
+        with st.spinner("Scanning all documents to discover and normalize metrics..."):
+            # Import and call our new controller function
+            from query_handler import discover_and_normalize_metrics_from_library
             
-            if discovered_metrics is not None:
+            metrics_df, status = discover_and_normalize_metrics_from_library()
+            
+            if metrics_df is not None and not metrics_df.empty:
+                st.session_state.discovered_metrics_df = metrics_df
                 st.success(status)
-                st.write("Discovered Metrics:")
-                st.dataframe(discovered_metrics)
             else:
-                st.error(status)por
-    else:
-        st.info("Your Knowledge Library is empty. Add a document in Step 3 to begin.")
+                st.session_state.discovered_metrics_df = None
+                st.error(status)
+        st.rerun() # Rerun to display the dataframe below immediately
+
+    # --- Part B: Display results of full analysis ---
+    if st.session_state.discovered_metrics_df is not None:
+        st.subheader("Discovered Common Metrics")
+        st.write("The following metrics were found across the documents in your library, sorted by frequency.")
+        st.dataframe(st.session_state.discovered_metrics_df)
+
 else:
-    st.info("You must create a Knowledge Library first (by adding a document in Step 3).")
+    st.info("You must add documents to the Knowledge Library before you can analyze it.")
