@@ -54,13 +54,21 @@ def discover_metrics_in_doc(source_url):
     )
 
     # This prompt asks the LLM to act as a scanner
-    discovery_prompt = """
-    Based ONLY on the provided context from this single research paper, identify and list every single quantifiable statistical metric or outcome measure that is reported with a numerical value.
-    Do not include metrics that are only mentioned without an associated result.
-    Respond in a valid JSON format with a single key 'metrics', which is a list of strings. Each string should be a concise name for the metric, including units if appropriate.
-    Example Response: {"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)", "Change in Body Weight (kg)", "Adverse Event Rate (%)"]}
-    """
+    # discovery_prompt = """
+    # Based ONLY on the provided context from this single research paper, identify and list every single quantifiable statistical metric or outcome measure that is reported with a numerical value.
+    # Do not include metrics that are only mentioned without an associated result.
+    # Respond in a valid JSON format with a single key 'metrics', which is a list of strings. Each string should be a concise name for the metric, including units if appropriate.
+    # Example Response: {"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)", "Change in Body Weight (kg)", "Adverse Event Rate (%)"]}
+    # """
 
+    discovery_prompt = """
+    From the provided text of a research paper, extract all reported quantifiable metrics with their units.
+    Focus on data points that have numerical values.
+    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings.
+    Each string in the list should be a distinct metric found in the text.
+    For example: {"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}
+    If no metrics are found, return an empty list: {"metrics": []}
+    """
     try:
         result = qa_chain.invoke({"query": discovery_prompt})
         # The LLM's raw output should be a JSON string
