@@ -43,15 +43,16 @@ def discover_metrics_in_doc(source_url):
 
     # Create a retriever filtered to search ONLY within the specified document
     retriever = vector_store.as_retriever(
-        search_kwargs={'k': 15, 'filter': {'source': source_url}}
+        search_kwargs={'k': 20, 'filter': {'source': source_url}}
     )
 
-    # The chain that combines the retriever and LLM
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-    )
+    
+    # # The chain that combines the retriever and LLM
+    # qa_chain = RetrievalQA.from_chain_type(
+    #     llm=llm,
+    #     chain_type="stuff",
+    #     retriever=retriever,
+    # )
 
     # This prompt asks the LLM to act as a scanner
     # discovery_prompt = """
@@ -61,23 +62,64 @@ def discover_metrics_in_doc(source_url):
     # Example Response: {"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)", "Change in Body Weight (kg)", "Adverse Event Rate (%)"]}
     # """
 
-    discovery_prompt = """
-    From the provided text of a research paper, extract all reported quantifiable metrics with their units.
-    Focus on data points that have numerical values.
-    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings.
-    Each string in the list should be a distinct metric found in the text.
-    For example: {"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}
-    If no metrics are found, return an empty list: {"metrics": []}
+    # discovery_prompt = """
+    # From the provided text of a research paper, extract all reported quantifiable metrics with their units.
+    # Focus on data points that have numerical values.
+    # Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings.
+    # Each string in the list should be a distinct metric found in the text.
+    # For example: {"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}
+    # If no metrics are found, return an empty list: {"metrics": []}
+    # """
+    # try:
+    #     result = qa_chain.invoke({"query": discovery_prompt})
+    #     # The LLM's raw output should be a JSON string
+    #     answer_json = json.loads(result['result'])
+    #     metrics_list = answer_json.get('metrics', [])
+    #     return metrics_list, "Discovery successful."
+    # except (json.JSONDecodeError, KeyError, TypeError) as e:
+    #     st.error(f"Failed to parse LLM response during discovery: {e}")
+    #     st.write("LLM Raw Output:", result.get('result', 'No result found.'))
+    #     return None, "Failed to parse LLM response."
+    # except Exception as e:
+    #     return None, f"An error occurred during discovery: {e}"
+
+    # We are just using the retriever part, not the full chain
+    # The query here is a simple string to find relevant sections
+    relevant_chunks = retriever.get_relevant_documents("all statistical results, outcomes, and baseline characteristics")
+
+    if not relevant_chunks:
+        return [], "No relevant chunks found in the document."
+
+    # Step 2: Manually build the context string
+    context_string = "\n\n---\n\n".join([doc.page_content for doc in relevant_chunks])
+
+    # Step 3: Manually build the final prompt with the retrieved context
+    discovery_prompt = f"""
+    Here is the context from a single research paper:
+    --- CONTEXT START ---
+    {context_string}
+    --- CONTEXT END ---
+
+    Based ONLY on the context provided above, identify and list every single quantifiable statistical metric or outcome measure that is reported with a numerical value.
+    Do not include metrics that are only mentioned without an associated result.
+    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings. Each string should be a concise name for the metric, including units if appropriate.
+    Example: {{"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}}
+    If no metrics are found in the context, return an empty list: {{"metrics": []}}
     """
+
     try:
-        result = qa_chain.invoke({"query": discovery_prompt})
-        # The LLM's raw output should be a JSON string
-        answer_json = json.loads(result['result'])
+        # Step 4: Invoke the LLM with the manually constructed prompt
+        result = llm.invoke(discovery_prompt)
+        
+        # The response from ChatOpenAI is an AIMessage object, its content is in the .content attribute
+        answer_json = json.loads(result.content)
         metrics_list = answer_json.get('metrics', [])
+        
         return metrics_list, "Discovery successful."
+        
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         st.error(f"Failed to parse LLM response during discovery: {e}")
-        st.write("LLM Raw Output:", result.get('result', 'No result found.'))
+        st.write("LLM Raw Output:", result.content if 'result' in locals() else "No result object")
         return None, "Failed to parse LLM response."
     except Exception as e:
         return None, f"An error occurred during discovery: {e}"
