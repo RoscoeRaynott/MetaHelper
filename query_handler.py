@@ -35,8 +35,11 @@ def get_llm():
 def discover_metrics_in_doc(source_url):
     """
     Performs a RAG query on a single document to find all quantifiable metrics.
-    This version retrieves ALL chunks for a document to ensure full context.
+    This version retrieves ALL chunks for a document to ensure full context,
+    and adds robust parsing + fallback so we never silently return nothing.
     """
+    import re
+
     vector_store = st.session_state.get('vector_store', None)
     if not vector_store:
         return None, "Vector Store not found in session."
@@ -45,21 +48,17 @@ def discover_metrics_in_doc(source_url):
     if not llm:
         return None, "LLM not initialized."
 
-    # --- THE FIX: Retrieve ALL chunks for the document ---
-    # We are bypassing the similarity search for the discovery phase.
-    # The .get() method allows us to retrieve documents based on their metadata.
+    # --- Retrieve ALL chunks for the document ---
     all_doc_chunks = vector_store.get(
         where={"source": source_url},
-        include=["documents"] # We only need the text content
+        include=["documents"]  # Only need the text content
     )
-    
     context_string = "\n\n---\n\n".join(all_doc_chunks["documents"])
-    
+
     if not context_string.strip():
         return [], "No text content found for this document in the vector store."
-    # --- END FIX ---
 
-    # Manually build the final prompt with the full document context
+    # --- Prompt with full document context ---
     discovery_prompt = f"""
     Here is the full text of a research paper:
     --- CONTEXT START ---
@@ -68,26 +67,42 @@ def discover_metrics_in_doc(source_url):
 
     Based ONLY on the context provided above, identify and list every single quantifiable statistical metric or outcome measure that is reported with a numerical value.
     Do not include metrics that are only mentioned without an associated result.
-    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings. Each string should be a concise name for the metric, including units if appropriate.
+    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings.
+    Each string should be a concise name for the metric, including units if appropriate.
     Example: {{"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}}
     If no metrics are found, return an empty list: {{"metrics": []}}
     """
 
     try:
-        # Invoke the LLM directly with the manually constructed prompt
+        # Invoke the LLM directly
         result = llm.invoke(discovery_prompt)
-        
-        answer_json = json.loads(result.content)
-        metrics_list = answer_json.get('metrics', [])
-        
-        return metrics_list, "Discovery successful."
-        
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        st.error(f"Failed to parse LLM response during discovery: {e}")
-        st.write("LLM Raw Output:", result.content if 'result' in locals() else "No result object")
-        return None, "Failed to parse LLM response."
+
+        # Different LLMs wrap output differently: AIMessage vs dict
+        raw_output = getattr(result, "content", str(result))
+
+        # --- DEBUG: Show raw LLM output in Streamlit ---
+        st.write("🔎 Raw LLM Output for metric discovery:", raw_output)
+
+        # Try JSON parse first
+        try:
+            answer_json = json.loads(raw_output)
+            metrics_list = answer_json.get("metrics", [])
+            if metrics_list:
+                return metrics_list, "Discovery successful."
+        except Exception:
+            st.warning("Claude returned non-JSON output, using fallback parsing.")
+
+        # --- Fallback: regex-based extraction from raw text ---
+        candidates = re.findall(r'([A-Za-z][\w\s/%\(\)\-]*?\d+[\w\s/%\(\)\-]*)', raw_output)
+        fallback_metrics = list({c.strip() for c in candidates if len(c.strip()) > 3})
+
+        if fallback_metrics:
+            return fallback_metrics, "Discovery fallback: parsed metrics from raw text."
+        else:
+            return [], "Discovery complete but no numeric-like metrics found."
+
     except Exception as e:
-        return None, f"An error occurred during discovery: {e}"
+        return [], f"An error occurred during discovery: {e}"
 
 def _normalize_metrics(raw_metrics_list, llm):
     """
