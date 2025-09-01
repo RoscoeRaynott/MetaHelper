@@ -33,76 +33,69 @@ def get_llm():
 # REPLACE the entire discover_metrics_in_doc function with this new version
 
 def discover_metrics_in_doc(source_url):
-    """
-    Performs a RAG query on a single document to find all quantifiable metrics.
-    This version retrieves ALL chunks for a document to ensure full context,
-    and adds robust parsing + fallback so we never silently return nothing.
-    """
     import re
 
     vector_store = st.session_state.get('vector_store', None)
     if not vector_store:
+        st.error("❌ Vector Store not found in session.")
         return None, "Vector Store not found in session."
 
     llm = get_llm()
     if not llm:
+        st.error("❌ LLM not initialized.")
         return None, "LLM not initialized."
 
     # --- Retrieve ALL chunks for the document ---
     all_doc_chunks = vector_store.get(
         where={"source": source_url},
-        include=["documents"]  # Only need the text content
+        include=["documents"]
     )
-    context_string = "\n\n---\n\n".join(all_doc_chunks["documents"])
 
+    st.write(f"📄 Retrieved {len(all_doc_chunks.get('documents', []))} chunks for {source_url}")
+
+    context_string = "\n\n---\n\n".join(all_doc_chunks.get("documents", []))
     if not context_string.strip():
+        st.warning("⚠️ No text content found for this document in the vector store.")
         return [], "No text content found for this document in the vector store."
 
-    # --- Prompt with full document context ---
     discovery_prompt = f"""
     Here is the full text of a research paper:
     --- CONTEXT START ---
     {context_string}
     --- CONTEXT END ---
-
-    Based ONLY on the context provided above, identify and list every single quantifiable statistical metric or outcome measure that is reported with a numerical value.
-    Do not include metrics that are only mentioned without an associated result.
-    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings.
-    Each string should be a concise name for the metric, including units if appropriate.
-    Example: {{"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}}
-    If no metrics are found, return an empty list: {{"metrics": []}}
+    Extract quantifiable metrics as JSON {{ "metrics": [...] }}
     """
 
     try:
-        # Invoke the LLM directly
         result = llm.invoke(discovery_prompt)
 
-        # Different LLMs wrap output differently: AIMessage vs dict
-        raw_output = getattr(result, "content", str(result))
+        # Inspect the raw LLM object
+        st.write("🛠 LLM raw result object:", result)
 
-        # --- DEBUG: Show raw LLM output in Streamlit ---
-        st.write("🔎 Raw LLM Output for metric discovery:", raw_output)
+        # Get raw output safely
+        raw_output = getattr(result, "content", None)
+        if not raw_output:
+            raw_output = str(result)
 
-        # Try JSON parse first
+        st.write("🔎 Raw LLM Output:", raw_output)
+
+        # Try JSON parse
         try:
             answer_json = json.loads(raw_output)
             metrics_list = answer_json.get("metrics", [])
-            if metrics_list:
-                return metrics_list, "Discovery successful."
+            return metrics_list, "Discovery successful (JSON)."
         except Exception:
-            st.warning("Claude returned non-JSON output, using fallback parsing.")
+            st.warning("⚠️ JSON parsing failed, using regex fallback.")
 
-        # --- Fallback: regex-based extraction from raw text ---
+        # Fallback: regex
         candidates = re.findall(r'([A-Za-z][\w\s/%\(\)\-]*?\d+[\w\s/%\(\)\-]*)', raw_output)
         fallback_metrics = list({c.strip() for c in candidates if len(c.strip()) > 3})
-
-        if fallback_metrics:
-            return fallback_metrics, "Discovery fallback: parsed metrics from raw text."
-        else:
-            return [], "Discovery complete but no numeric-like metrics found."
+        return fallback_metrics, "Discovery fallback."
 
     except Exception as e:
-        return [], f"An error occurred during discovery: {e}"
+        st.error(f"❌ Error during discovery: {e}")
+        return [], f"An error occurred: {e}"
+
 
 def _normalize_metrics(raw_metrics_list, llm):
     """
