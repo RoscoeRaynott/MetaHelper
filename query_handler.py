@@ -197,6 +197,25 @@ def discover_and_normalize_metrics_from_library():
     if not normalized_map:
         return pd.DataFrame(), "Metric normalization failed. Cannot proceed."
 
+    # --- 🔎 Show raw + normalized metrics per document ---
+    synonym_to_canonical_map = {
+        synonym.lower(): canonical
+        for canonical, synonyms in normalized_map.items()
+        for synonym in synonyms
+    }
+    
+    for doc, raw_metrics in raw_metrics_per_doc.items():
+        if not raw_metrics:
+            st.write(f"📄 {doc}: No metrics discovered.")
+            continue
+        normalized = []
+        for metric in raw_metrics:
+            norm = synonym_to_canonical_map.get(metric.lower(), metric)
+            normalized.append(norm)
+        st.write(f"📄 {doc}")
+        st.write("   Raw metrics:", raw_metrics)
+        st.write("   Normalized metrics:", normalized)
+
     # --- Phase 3: Counting and Formatting ---
     # Invert the map for easy lookup
     synonym_to_canonical_map = {synonym.lower(): canonical for canonical, synonyms in normalized_map.items() for synonym in synonyms}
