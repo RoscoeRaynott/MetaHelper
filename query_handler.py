@@ -35,69 +35,57 @@ def get_llm():
 def discover_metrics_in_doc(source_url):
     """
     Performs a RAG query on a single document to find all quantifiable metrics.
-    Includes a fallback mechanism to parse raw text if JSON fails.
+    This version retrieves ALL chunks for a document to ensure full context.
     """
     vector_store = st.session_state.get('vector_store', None)
     if not vector_store:
-        return None, "Vector Store not found in session. Please process and add documents first."
+        return None, "Vector Store not found in session."
 
     llm = get_llm()
     if not llm:
-        return None, "LLM not initialized. Check API keys."
+        return None, "LLM not initialized."
 
-    # Use the RetrievalQA chain as it's simpler and the issue isn't the chain itself.
-    retriever = vector_store.as_retriever(
-        search_kwargs={'k': 15, 'filter': {'source': source_url}}
+    # --- THE FIX: Retrieve ALL chunks for the document ---
+    # We are bypassing the similarity search for the discovery phase.
+    # The .get() method allows us to retrieve documents based on their metadata.
+    all_doc_chunks = vector_store.get(
+        where={"source": source_url},
+        include=["documents"] # We only need the text content
     )
+    
+    context_string = "\n\n---\n\n".join(all_doc_chunks["documents"])
+    
+    if not context_string.strip():
+        return [], "No text content found for this document in the vector store."
+    # --- END FIX ---
 
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        chain_type="stuff",
-        retriever=retriever,
-    )
+    # Manually build the final prompt with the full document context
+    discovery_prompt = f"""
+    Here is the full text of a research paper:
+    --- CONTEXT START ---
+    {context_string}
+    --- CONTEXT END ---
 
-    # Use the simpler, more direct prompt
-    discovery_prompt = """
-    From the provided text of a research paper, extract all reported quantifiable metrics with their units.
-    Focus on data points that have numerical values.
-    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings.
-    Example: {"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}
-    If no metrics are found, return an empty list: {"metrics": []}
+    Based ONLY on the context provided above, identify and list every single quantifiable statistical metric or outcome measure that is reported with a numerical value.
+    Do not include metrics that are only mentioned without an associated result.
+    Your response MUST be a valid JSON object containing a single key "metrics", which is a list of strings. Each string should be a concise name for the metric, including units if appropriate.
+    Example: {{"metrics": ["Sample Size (participants)", "Mean Age (years)", "Baseline BMI (kg/m^2)"]}}
+    If no metrics are found, return an empty list: {{"metrics": []}}
     """
 
     try:
-        result = qa_chain.invoke({"query": discovery_prompt})
-        raw_output = result.get("result", "")
-
-        # --- Primary Strategy: Try to parse JSON ---
-        try:
-            answer_json = json.loads(raw_output)
-            metrics_list = answer_json.get("metrics", [])
-            if metrics_list:
-                return metrics_list, "Discovery successful (JSON)."
-        except (json.JSONDecodeError, TypeError):
-            st.warning("LLM returned non-JSON output. Attempting fallback parsing...")
-            st.write("LLM Raw Output:", raw_output) # Show the user what the LLM said
-
-        # --- Fallback Strategy: Use Regex on raw output ---
-        # This regex looks for phrases that contain letters, numbers, and symbols like %, /, (), -
-        # It's designed to capture things like "Mean Age (years): 45.2" or "BMI (kg/m^2)"
-        fallback_metrics = []
-        # This pattern finds phrases that contain at least one letter and at least one number.
-        candidates = re.findall(r'([A-Za-z\s/%\(\)\-]+\d+[\w\s/%\(\)\.\-±]+|[\d\.\s±]+[A-Za-z\s/%\(\)\-]+)', raw_output)
+        # Invoke the LLM directly with the manually constructed prompt
+        result = llm.invoke(discovery_prompt)
         
-        for c in candidates:
-            cleaned = c.strip(" ,.:-")
-            # Add some basic filtering to avoid very short, irrelevant matches
-            if len(cleaned) > 4 and cleaned not in fallback_metrics:
-                fallback_metrics.append(cleaned)
-
-        if fallback_metrics:
-            return fallback_metrics, "Discovery successful (Fallback Parsing)."
-        else:
-            # If both JSON and fallback fail, then there's truly nothing to report.
-            return [], "Discovery complete. No quantifiable metrics were found."
-
+        answer_json = json.loads(result.content)
+        metrics_list = answer_json.get('metrics', [])
+        
+        return metrics_list, "Discovery successful."
+        
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        st.error(f"Failed to parse LLM response during discovery: {e}")
+        st.write("LLM Raw Output:", result.content if 'result' in locals() else "No result object")
+        return None, "Failed to parse LLM response."
     except Exception as e:
         return None, f"An error occurred during discovery: {e}"
 
