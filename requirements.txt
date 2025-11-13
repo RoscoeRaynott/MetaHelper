@@ -15,3 +15,4 @@ protobuf==3.20.3
 pysqlite3-binary
 langchain-chroma
 pandas
+langchain-core
