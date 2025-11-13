@@ -11,8 +11,8 @@ import uuid
 #import shutil
 #from langchain_community.vectorstores import Chroma
 from langchain_chroma import Chroma
-from langchain.docstore.document import Document
-from langchain.embeddings.base import Embeddings
+from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 import time
 
 # --- Custom Hugging Face Embedding Class ---
