@@ -3,7 +3,7 @@
 import streamlit as st
 import json
 from langchain_openai import ChatOpenAI
-from langchain.chains.retrieval_qa.base import RetrievalQA
+#from langchain.chains.retrieval_qa.base import RetrievalQA
 import pandas as pd
 
 @st.cache_resource
