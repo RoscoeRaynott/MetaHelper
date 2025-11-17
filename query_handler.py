@@ -378,31 +378,31 @@ def generate_outcome_table(outcome_of_interest):
     df = pd.DataFrame(table_data)
     return df, "Table generation complete."
 
-    def test_table_parser(source_url, exact_table_title):
-    """
-    A temporary function to test the new table parser.
-    """
-    # We need to import the new function and some libraries
-    from data_ingestor import _parse_outcome_table
-    import requests
-    from bs4 import BeautifulSoup
+    # def test_table_parser(source_url, exact_table_title):
+    # """
+    # A temporary function to test the new table parser.
+    # """
+    # # We need to import the new function and some libraries
+    # from data_ingestor import _parse_outcome_table
+    # import requests
+    # from bs4 import BeautifulSoup
 
-    st.info(f"Attempting to parse table '{exact_table_title}' from {source_url}")
+    # st.info(f"Attempting to parse table '{exact_table_title}' from {source_url}")
     
-    # Step 1: Fetch the raw HTML
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(source_url, headers=headers, timeout=15)
-        response.raise_for_status()
-        html_content = response.text
-        soup = BeautifulSoup(html_content, 'html.parser')
-    except requests.exceptions.RequestException as e:
-        return None, f"Failed to fetch HTML: {e}"
+    # # Step 1: Fetch the raw HTML
+    # try:
+    #     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    #     response = requests.get(source_url, headers=headers, timeout=15)
+    #     response.raise_for_status()
+    #     html_content = response.text
+    #     soup = BeautifulSoup(html_content, 'html.parser')
+    # except requests.exceptions.RequestException as e:
+    #     return None, f"Failed to fetch HTML: {e}"
 
-    # Step 2: Call the new parsing engine
-    extracted_data = _parse_outcome_table(soup, exact_table_title)
+    # # Step 2: Call the new parsing engine
+    # extracted_data = _parse_outcome_table(soup, exact_table_title)
 
-    if extracted_data:
-        return extracted_data, "Table parsing successful."
-    else:
-        return None, "Failed to find or parse the specified table."
+    # if extracted_data:
+    #     return extracted_data, "Table parsing successful."
+    # else:
+    #     return None, "Failed to find or parse the specified table."
