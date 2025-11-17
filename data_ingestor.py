@@ -256,7 +256,6 @@ def extract_ct_gov_outcome_from_api(nct_id, user_outcome_of_interest):
         if not target_outcome:
             return ["N/A (Outcome not found)"], "Specified outcome not found in results."
 
-        # --- YOUR CORRECTED CORE LOGIC ---
         all_groups = outcome_measures_module.get('groups', [])
         group_id_map = {g['id']: g['title'] for g in all_groups if 'id' in g and 'title' in g}
 
@@ -276,8 +275,7 @@ def extract_ct_gov_outcome_from_api(nct_id, user_outcome_of_interest):
                                 findings.append(f"{title}: {count} ({percent}%)")
                             else:
                                 findings.append(f"{title}: {count}")
-        # --- END OF YOUR CORRECTED LOGIC ---
-
+        
         if not findings:
             return ["N/A (Count data not found)"], "Found outcome, but no count data."
 
