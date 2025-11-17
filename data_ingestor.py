@@ -185,7 +185,7 @@ def parse_outcome_table(soup, table_title):
     found_data = []
     try:
         # Find the <h2> tag that contains the exact table title
-        header_tag = soup.find('h2', string=lambda t: t and table_title.strip().lower() in t.strip().lower())
+        header_tag = soup.find(['h2','h3','h4'], string=lambda t: t and table_title.strip().lower() in t.strip().lower())
         
         if not header_tag:
             return None # Table title not found on the page
