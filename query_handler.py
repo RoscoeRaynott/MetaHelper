@@ -275,7 +275,8 @@ def extract_outcome_from_doc(source_url, outcome_of_interest):
     )
     
     # Use the retriever to get the context first
-    relevant_chunks = retriever.get_relevant_documents(outcome_of_interest)
+    # relevant_chunks = retriever.get_relevant_documents(outcome_of_interest)
+    relevant_chunks = retriever.invoke(outcome_of_interest)
     if not relevant_chunks:
         return ["N/A (No relevant sections found)"], "Extraction complete."
         
