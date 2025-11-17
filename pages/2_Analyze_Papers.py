@@ -187,3 +187,35 @@ if vector_store:
 
 else:
     st.info("You must add documents to the Knowledge Library before you can analyze it.")
+
+# --- 5. Test Single Document Outcome Extraction ---
+st.markdown("---")
+st.header("5. Test Single Document Outcome Extraction")
+
+if vector_store:
+    user_outcome = st.session_state.get('user_outcome_of_interest', '')
+    if not user_outcome:
+        st.warning("Please perform a search on the main page and provide an 'Outcome of Interest' to enable this feature.")
+    else:
+        st.info(f"Will be searching for the outcome: **'{user_outcome}'**")
+        
+        all_docs_metadata = vector_store.get(include=["metadatas"])
+        unique_sources = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+        
+        if unique_sources:
+            doc_to_analyze = st.selectbox("Select a document from your library to extract the outcome from:", options=unique_sources, key="single_doc_extraction")
+            
+            if st.button("Extract Outcome from This Document"):
+                with st.spinner(f"Searching for '{user_outcome}' in '{doc_to_analyze}'..."):
+                    from query_handler import extract_outcome_from_doc
+                    
+                    findings, status = extract_outcome_from_doc(doc_to_analyze, user_outcome)
+                
+                st.success(status)
+                if findings is not None:
+                    st.write(f"**Found {len(findings)} value(s) for '{user_outcome}':**")
+                    st.dataframe(findings)
+                else:
+                    st.error("Extraction failed.")
+else:
+    st.info("You must add documents to the Knowledge Library before you can test extraction.")
