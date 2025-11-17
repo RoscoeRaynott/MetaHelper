@@ -6,6 +6,7 @@ from data_ingestor import process_single_link
 # from vector_store_manager import create_vector_store, load_vector_store
 # from vector_store_manager import clear_vector_store
 from vector_store_manager import add_to_in_memory_vector_store, clear_in_memory_vector_store
+from data_ingestor import get_ct_gov_table_titles_from_api
 import time
 
 st.set_page_config(layout="wide")
