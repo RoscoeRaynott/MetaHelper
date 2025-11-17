@@ -267,3 +267,54 @@ if vector_store:
             st.info("No ClinicalTrials.gov documents are in the library to test.")
 else:
     st.info("You must add documents to the Knowledge Library before you can test the parser.")
+
+# --- 7. Test CT.gov Table Title Lister ---
+st.markdown("---")
+st.header("7. Test ClinicalTrials.gov Table Title Lister")
+
+# Use st.session_state.get to be safe
+vector_store_exists = st.session_state.get('vector_store') is not None
+
+if vector_store_exists:
+    vector_store = st.session_state.get('vector_store')
+    all_docs_metadata = vector_store.get(include=["metadatas"])
+    ct_sources = sorted(list(set(
+        meta['source'] for meta in all_docs_metadata['metadatas'] 
+        if "clinicaltrials.gov" in meta['source']
+    )))
+    
+    if ct_sources:
+        st.info("This will call the CT.gov API and list all data table titles found in the results section.")
+        doc_to_list = st.selectbox(
+            "Select a ClinicalTrials.gov document to list its tables:", 
+            options=ct_sources,
+            key="ct_gov_title_lister_test"
+        )
+        
+        if st.button("List Table Titles"):
+            if doc_to_list:
+                with st.spinner(f"Calling CT.gov API for {doc_to_list} and finding table titles..."):
+                    from data_ingestor import get_ct_gov_table_titles_from_api
+                    import re
+
+                    nct_match = re.search(r'NCT\d+', doc_to_list)
+                    if nct_match:
+                        nct_id = nct_match.group(0)
+                        table_titles, status = get_ct_gov_table_titles_from_api(nct_id)
+                        
+                        st.info(status)
+                        if table_titles:
+                            st.write("Found the following table titles:")
+                            # Display as a numbered list
+                            for i, title in enumerate(table_titles):
+                                st.text(f"{i+1}. {title}")
+                        elif table_titles is not None: # Handles empty list case
+                            st.warning("No table titles were found in the results section of this trial.")
+                    else:
+                        st.error("Could not extract NCT ID from the selected URL.")
+            else:
+                st.warning("Please select a document to test.")
+    else:
+        st.info("No ClinicalTrials.gov documents are in the library to test.")
+else:
+    st.info("You must add documents to the Knowledge Library before you can test this feature.")
