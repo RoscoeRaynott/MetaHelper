@@ -177,7 +177,7 @@ def process_single_link(url):
     
     return full_text_for_display, text_chunks_with_metadata
 
-def _parse_outcome_table(soup, table_title):
+def parse_outcome_table(soup, table_title):
     """
     Finds a specific table by its preceding h2 title and parses it.
     Returns a list of formatted strings, e.g., ["Group A: 10 (5%)", "Group B: 12 (6%)"].
