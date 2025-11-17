@@ -219,9 +219,37 @@ else:
 st.markdown("---")
 st.header("6. Test Specialized Table Parser (for ClinicalTrials.gov)")
 
+# We define the test logic right here in the UI script to avoid import errors.
+def run_table_parser_test(source_url, exact_table_title):
+    """
+    A temporary function to test the new table parser.
+    """
+    # Import the function we want to test
+    from data_ingestor import _parse_outcome_table
+    import requests
+    from bs4 import BeautifulSoup
+
+    st.info(f"Attempting to parse table '{exact_table_title}' from {source_url}")
+    
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(source_url, headers=headers, timeout=15)
+        response.raise_for_status()
+        html_content = response.text
+        soup = BeautifulSoup(html_content, 'html.parser')
+    except requests.exceptions.RequestException as e:
+        return None, f"Failed to fetch HTML: {e}"
+
+    extracted_data = _parse_outcome_table(soup, exact_table_title)
+
+    if extracted_data:
+        return extracted_data, "Table parsing successful."
+    else:
+        return None, "Failed to find or parse the specified table."
+
+# Now, the UI part of Section 6
 if vector_store:
     all_docs_metadata = vector_store.get(include=["metadatas"])
-    # Filter for only ClinicalTrials.gov links
     ct_sources = sorted(list(set(
         meta['source'] for meta in all_docs_metadata['metadatas'] 
         if "clinicaltrials.gov" in meta['source']
@@ -230,16 +258,14 @@ if vector_store:
     if ct_sources:
         doc_to_parse = st.selectbox("Select a ClinicalTrials.gov document to test:", options=ct_sources)
         
-        # We need the user to provide the exact title of the table to parse
         exact_table_title = st.text_input("Enter the EXACT title of the outcome table to parse:", 
                                           placeholder="e.g., Mortality at 28 Days (n (%))")
 
         if st.button("Test Table Parser"):
             if doc_to_parse and exact_table_title:
                 with st.spinner("Fetching page and parsing table..."):
-                    from query_handler import test_table_parser
-                    
-                    parsed_data, status = test_table_parser(doc_to_parse, exact_table_title)
+                    # Call the local test function
+                    parsed_data, status = run_table_parser_test(doc_to_parse, exact_table_title)
                 
                 st.info(status)
                 if parsed_data:
