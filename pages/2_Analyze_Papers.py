@@ -225,7 +225,7 @@ def run_table_parser_test(source_url, exact_table_title):
     A temporary function to test the new table parser.
     """
     # Import the function we want to test
-    from data_ingestor import _parse_outcome_table
+    from data_ingestor import parse_outcome_table
     import requests
     from bs4 import BeautifulSoup
 
@@ -240,7 +240,7 @@ def run_table_parser_test(source_url, exact_table_title):
     except requests.exceptions.RequestException as e:
         return None, f"Failed to fetch HTML: {e}"
 
-    extracted_data = _parse_outcome_table(soup, exact_table_title)
+    extracted_data = parse_outcome_table(soup, exact_table_title)
 
     if extracted_data:
         return extracted_data, "Table parsing successful."
