@@ -191,7 +191,7 @@ def parse_outcome_table(soup, table_title):
             return None # Table title not found on the page
 
         # Find the <table> element that immediately follows the header
-        table = header_tag.find_next_sibling('table')
+        table = header_tag.find_next('table')
         if not table:
             return None # No table found after the header
 
