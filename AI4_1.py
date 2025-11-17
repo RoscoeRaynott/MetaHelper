@@ -519,6 +519,7 @@ if st.sidebar.button("Search"):
     else:
         st.header("PubMed / PubMed Central Results")
         pubmed_status_message = st.empty()
+        st.session_state['user_outcome_of_interest'] = outcome_input_ui
         with st.spinner(f"Performing PubMed search..."):
             pubmed_status_message.info("Initializing PubMed search...")
             pubmed_results, pubmed_query_description = fetch_pubmed_results(
