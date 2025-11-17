@@ -325,12 +325,16 @@ def get_ct_gov_table_titles_from_api(nct_id):
             if has_mortality_data:
                 all_titles.append(f"[Adverse] All-Cause Mortality")
 
-            # Similarly, we can add entries for the other two main tables if they exist.
-            if adverse_module.get('seriousEvents'):
-                all_titles.append(f"[Adverse] Serious Adverse Events")
-            if adverse_module.get('otherEvents'):
-                 all_titles.append(f"[Adverse] Other Adverse Events")
+            # Iterate through the seriousEvents list and extract each 'term' as a title
+            for event in adverse_module.get('seriousEvents', []):
+                if event.get('term'):
+                    all_titles.append(f"[Adverse-Serious] {event['term']}")
 
+            # Iterate through the otherEvents list and extract each 'term' as a title
+            for event in adverse_module.get('otherEvents', []):
+                if event.get('term'):
+                    all_titles.append(f"[Adverse-Other] {event['term']}")
+                    
         if not all_titles:
             return [], "Results section was found, but it contains no data tables."
 
