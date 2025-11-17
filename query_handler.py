@@ -333,3 +333,50 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         return None, "Failed to parse LLM response."
     except Exception as e:
         return None, f"An error occurred during extraction: {e}"
+
+
+
+
+def generate_outcome_table(outcome_of_interest):
+    """
+    Main controller to generate the final data table.
+    Iterates through all unique documents in the vector store and extracts the
+    specified outcome for each one.
+    """
+    vector_store = st.session_state.get('vector_store', None)
+    if not vector_store:
+        return None, "Vector Store not found. Please add documents first."
+
+    # Get all unique source documents from the vector store
+    all_docs_metadata = vector_store.get(include=["metadatas"])
+    unique_sources = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
+    
+    if not unique_sources:
+        return None, "No documents found in the library to analyze."
+
+    table_data = []
+    progress_bar = st.progress(0, text="Starting table generation...")
+
+    for i, source_url in enumerate(unique_sources):
+        progress_bar.progress((i + 1) / len(unique_sources), text=f"Extracting from: {source_url}")
+        
+        # Call our verified single-document extraction function
+        findings, status = extract_outcome_from_doc(source_url, outcome_of_interest)
+        
+        # Join the list of findings into a single string for the table cell
+        # e.g., ["5.2 kg", "7.1 kg"] becomes "5.2 kg | 7.1 kg"
+        findings_str = " | ".join(findings) if findings else "N/A"
+        
+        table_data.append({
+            "Source Document": source_url,
+            f"Outcome: {outcome_of_interest}": findings_str
+        })
+
+    progress_bar.empty()
+    
+    if not table_data:
+        return None, "Could not extract data from any documents."
+
+    # Convert the list of dictionaries to a Pandas DataFrame for display
+    df = pd.DataFrame(table_data)
+    return df, "Table generation complete."
