@@ -304,8 +304,10 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
             ]
         }}
     )
-
-    context_chunks_for_extractor = extractor_retriever.invoke(exact_metric_name)
+     extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
+    st.info(f"Extractor Query: '{extractor_query}'") # Add info for clarity
+    context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
+    # context_chunks_for_extractor = extractor_retriever.invoke(exact_metric_name)
     if not context_chunks_for_extractor:
         return ["N/A (No data found for this metric)"], "Extraction complete."
 
