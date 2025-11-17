@@ -347,7 +347,6 @@ def generate_outcome_table(outcome_of_interest):
     if not vector_store:
         return None, "Vector Store not found. Please add documents first."
 
-    # Get all unique source documents from the vector store
     all_docs_metadata = vector_store.get(include=["metadatas"])
     unique_sources = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'])))
     
@@ -360,11 +359,8 @@ def generate_outcome_table(outcome_of_interest):
     for i, source_url in enumerate(unique_sources):
         progress_bar.progress((i + 1) / len(unique_sources), text=f"Extracting from: {source_url}")
         
-        # Call our verified single-document extraction function
         findings, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
-        # Join the list of findings into a single string for the table cell
-        # e.g., ["5.2 kg", "7.1 kg"] becomes "5.2 kg | 7.1 kg"
         findings_str = " | ".join(findings) if findings else "N/A"
         
         table_data.append({
@@ -377,6 +373,5 @@ def generate_outcome_table(outcome_of_interest):
     if not table_data:
         return None, "Could not extract data from any documents."
 
-    # Convert the list of dictionaries to a Pandas DataFrame for display
     df = pd.DataFrame(table_data)
     return df, "Table generation complete."
