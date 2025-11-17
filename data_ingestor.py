@@ -321,8 +321,7 @@ def get_ct_gov_table_titles_from_api(nct_id):
         # 3. Adverse Events
         adverse_module = results_section.get('adverseEventsModule', {})
         if adverse_module:
-            has_mortality_data = any('deathsNumAffected' in group for group in adverse_module.get('eventGroups', []))
-            if has_mortality_data:
+            if adverse_module.get('eventGroups'):
                 all_titles.append(f"[Adverse] All-Cause Mortality")
 
             # Iterate through the seriousEvents list and extract each 'term' as a title
