@@ -321,7 +321,6 @@ def get_ct_gov_table_titles_from_api(nct_id):
         # 3. Adverse Events
         adverse_module = results_section.get('adverseEventsModule', {})
         if adverse_module:
-            all_titles.append(f"HOLA")
             has_mortality_data = any('deathsNumAffected' in group for group in adverse_module.get('eventGroups', []))
             if has_mortality_data:
                 all_titles.append(f"[Adverse] All-Cause Mortality")
