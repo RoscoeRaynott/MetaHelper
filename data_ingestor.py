@@ -298,9 +298,9 @@ def get_ct_gov_table_titles_from_api(nct_id):
         response.raise_for_status()
         data = response.json()
 
-        study_data = data.get('study', {})
-        results_section = study_data.get('resultsSection', {})
-        # results_section = data.get('resultsSection', {})
+        # study_data = data.get('study', {})
+        # results_section = study_data.get('resultsSection', {})
+        results_section = data.get('resultsSection', {})
         if not results_section:
             return None, "No Results Section found in the API data for this trial."
 
