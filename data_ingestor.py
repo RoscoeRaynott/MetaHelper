@@ -285,3 +285,53 @@ def extract_ct_gov_outcome_from_api(nct_id, user_outcome_of_interest):
         return None, f"API request failed: {str(e)}"
     except (ValueError, KeyError) as e:
         return None, f"Failed to parse JSON or find key: {str(e)}"
+
+def get_ct_gov_table_titles_from_api(nct_id):
+    """
+    Fetches a full study record from the CT.gov API and returns a list of all
+    table titles from the Baseline, Outcome, and Adverse Event sections.
+    """
+    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}
+        response = requests.get(api_url, headers=headers, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+
+        results_section = data.get('resultsSection', {})
+        if not results_section:
+            return None, "No Results Section found in the API data for this trial."
+
+        all_titles = []
+
+        # 1. Baseline Characteristics
+        baseline_module = results_section.get('baselineDemographicsModule', {})
+        for measure in baseline_module.get('measures', []):
+            if measure.get('title'):
+                all_titles.append(f"[Baseline] {measure['title']}")
+
+        # 2. Outcome Measures
+        outcome_module = results_section.get('outcomeMeasuresModule', {})
+        for measure in outcome_module.get('outcomeMeasures', []):
+            if measure.get('title'):
+                all_titles.append(f"[Outcome] {measure['title']}")
+            
+        # 3. Adverse Events
+        adverse_module = results_section.get('adverseEventsModule', {})
+        if adverse_module:
+            if adverse_module.get('allCauseMortality', {}).get('title'):
+                all_titles.append(f"[Adverse] {adverse_module['allCauseMortality']['title']}")
+            if adverse_module.get('seriousAdverseEvents', {}).get('title'):
+                all_titles.append(f"[Adverse] {adverse_module['seriousAdverseEvents']['title']}")
+            if adverse_module.get('otherAdverseEvents', {}).get('title'):
+                all_titles.append(f"[Adverse] {adverse_module['otherAdverseEvents']['title']}")
+
+        if not all_titles:
+            return [], "Results section was found, but it contains no data tables."
+
+        return all_titles, "Successfully retrieved all table titles."
+
+    except requests.exceptions.RequestException as e:
+        return None, f"API request failed: {str(e)}"
+    except (ValueError, KeyError) as e:
+        return None, f"Failed to parse JSON or find a key: {str(e)}"
