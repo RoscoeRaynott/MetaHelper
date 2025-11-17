@@ -214,3 +214,38 @@ if vector_store:
                 st.error("Could not generate the table.")
 else:
     st.info("You must add documents to the Knowledge Library before you can generate a table.")
+
+# --- 6. Test ClinicalTrials.gov Table Parser ---
+st.markdown("---")
+st.header("6. Test Specialized Table Parser (for ClinicalTrials.gov)")
+
+if vector_store:
+    all_docs_metadata = vector_store.get(include=["metadatas"])
+    # Filter for only ClinicalTrials.gov links
+    ct_sources = sorted(list(set(
+        meta['source'] for meta in all_docs_metadata['metadatas'] 
+        if "clinicaltrials.gov" in meta['source']
+    )))
+    
+    if ct_sources:
+        doc_to_parse = st.selectbox("Select a ClinicalTrials.gov document to test:", options=ct_sources)
+        
+        # We need the user to provide the exact title of the table to parse
+        exact_table_title = st.text_input("Enter the EXACT title of the outcome table to parse:", 
+                                          placeholder="e.g., Mortality at 28 Days (n (%))")
+
+        if st.button("Test Table Parser"):
+            if doc_to_parse and exact_table_title:
+                with st.spinner("Fetching page and parsing table..."):
+                    from query_handler import test_table_parser
+                    
+                    parsed_data, status = test_table_parser(doc_to_parse, exact_table_title)
+                
+                st.info(status)
+                if parsed_data:
+                    st.write("Successfully extracted data:")
+                    st.dataframe(parsed_data)
+            else:
+                st.warning("Please select a document and enter a table title.")
+    else:
+        st.info("No ClinicalTrials.gov documents are in the library to test.")
