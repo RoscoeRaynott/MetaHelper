@@ -228,3 +228,62 @@ def parse_outcome_table(soup, table_title):
         # This will catch errors during parsing (e.g., if a table has an unexpected structure)
         print(f"Error parsing table '{table_title}': {e}")
         return None
+
+def extract_ct_gov_outcome_from_api(nct_id, user_outcome_of_interest):
+    """
+    Fetches a full study record from the CT.gov API and extracts the numerical data
+    for a specific outcome measure using robust JSON parsing.
+    """
+    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}
+        response = requests.get(api_url, headers=headers, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+
+        results_section = data.get('resultsSection', {})
+        if not results_section:
+            return ["N/A (No Results Section)"], "No results section found in API data."
+
+        outcome_measures_module = results_section.get('outcomeMeasuresModule', {})
+        outcome_measures = outcome_measures_module.get('outcomeMeasures', [])
+        target_outcome = None
+        for measure in outcome_measures:
+            if user_outcome_of_interest.lower() in measure.get('title', '').lower():
+                target_outcome = measure
+                break
+        
+        if not target_outcome:
+            return ["N/A (Outcome not found)"], "Specified outcome not found in results."
+
+        # --- YOUR CORRECTED CORE LOGIC ---
+        all_groups = outcome_measures_module.get('groups', [])
+        group_id_map = {g['id']: g['title'] for g in all_groups if 'id' in g and 'title' in g}
+
+        findings = []
+        analyses = target_outcome.get('analyses', [])
+        for analysis in analyses:
+            group_ids_in_analysis = analysis.get('groupIds', [])
+            for result in analysis.get('results', []):
+                if result.get('measureType') == 'COUNT_OF_PARTICIPANTS':
+                    for count_data in result.get('counts', []):
+                        gid = count_data.get('groupId')
+                        if gid in group_ids_in_analysis:
+                            title = group_id_map.get(gid, gid)
+                            count = count_data.get('count', 'N/A')
+                            percent = count_data.get('percent')
+                            if percent is not None:
+                                findings.append(f"{title}: {count} ({percent}%)")
+                            else:
+                                findings.append(f"{title}: {count}")
+        # --- END OF YOUR CORRECTED LOGIC ---
+
+        if not findings:
+            return ["N/A (Count data not found)"], "Found outcome, but no count data."
+
+        return findings, "Extraction successful."
+
+    except requests.exceptions.RequestException as e:
+        return None, f"API request failed: {str(e)}"
+    except (ValueError, KeyError) as e:
+        return None, f"Failed to parse JSON or find key: {str(e)}"
