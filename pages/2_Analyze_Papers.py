@@ -215,63 +215,55 @@ if vector_store:
 else:
     st.info("You must add documents to the Knowledge Library before you can generate a table.")
 
-# --- 6. Test ClinicalTrials.gov Table Parser ---
+# --- 6. Test Specialized CT.gov API Parser ---
 st.markdown("---")
-st.header("6. Test Specialized Table Parser (for ClinicalTrials.gov)")
+st.header("6. Test Specialized ClinicalTrials.gov API Parser")
 
-# We define the test logic right here in the UI script to avoid import errors.
-def run_table_parser_test(source_url, exact_table_title):
-    """
-    A temporary function to test the new table parser.
-    """
-    # Import the function we want to test
-    from data_ingestor import parse_outcome_table
-    import requests
-    from bs4 import BeautifulSoup
-
-    st.info(f"Attempting to parse table '{exact_table_title}' from {source_url}")
-    
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(source_url, headers=headers, timeout=15)
-        response.raise_for_status()
-        html_content = response.text
-        soup = BeautifulSoup(html_content, 'html.parser')
-    except requests.exceptions.RequestException as e:
-        return None, f"Failed to fetch HTML: {e}"
-
-    extracted_data = parse_outcome_table(soup, exact_table_title)
-
-    if extracted_data:
-        return extracted_data, "Table parsing successful."
-    else:
-        return None, "Failed to find or parse the specified table."
-
-# Now, the UI part of Section 6
 if vector_store:
-    all_docs_metadata = vector_store.get(include=["metadatas"])
-    ct_sources = sorted(list(set(
-        meta['source'] for meta in all_docs_metadata['metadatas'] 
-        if "clinicaltrials.gov" in meta['source']
-    )))
+    # Get the user's outcome of interest from the main page's search
+    user_outcome = st.session_state.get('user_outcome_of_interest', '')
     
-    if ct_sources:
-        doc_to_parse = st.selectbox("Select a ClinicalTrials.gov document to test:", options=ct_sources)
-        
-        exact_table_title = st.text_input("Enter the EXACT title of the outcome table to parse:", 
-                                          placeholder="e.g., Mortality at 28 Days (n (%))")
-
-        if st.button("Test Table Parser"):
-            if doc_to_parse and exact_table_title:
-                with st.spinner("Fetching page and parsing table..."):
-                    # Call the local test function
-                    parsed_data, status = run_table_parser_test(doc_to_parse, exact_table_title)
-                
-                st.info(status)
-                if parsed_data:
-                    st.write("Successfully extracted data:")
-                    st.dataframe(parsed_data)
-            else:
-                st.warning("Please select a document and enter a table title.")
+    if not user_outcome:
+        st.warning("To test the parser, please perform a search on the main page with an 'Outcome of Interest' defined.")
     else:
-        st.info("No ClinicalTrials.gov documents are in the library to test.")
+        all_docs_metadata = vector_store.get(include=["metadatas"])
+        # Filter for only ClinicalTrials.gov links
+        ct_sources = sorted(list(set(
+            meta['source'] for meta in all_docs_metadata['metadatas'] 
+            if "clinicaltrials.gov" in meta['source']
+        )))
+        
+        if ct_sources:
+            st.info(f"This will test the API parser on a selected document for the outcome: **'{user_outcome}'**")
+            doc_to_parse = st.selectbox(
+                "Select a ClinicalTrials.gov document to test:", 
+                options=ct_sources,
+                key="ct_gov_parser_test"
+            )
+            
+            if st.button("Test API Parser"):
+                if doc_to_parse:
+                    with st.spinner(f"Calling CT.gov API for {doc_to_parse} and parsing results..."):
+                        # Import the function we want to test
+                        from data_ingestor import extract_ct_gov_outcome_from_api
+                        import re # Import re for the NCT ID extraction
+
+                        # Extract the NCT ID from the URL to pass to the function
+                        nct_match = re.search(r'NCT\d+', doc_to_parse)
+                        if nct_match:
+                            nct_id = nct_match.group(0)
+                            parsed_data, status = extract_ct_gov_outcome_from_api(nct_id, user_outcome)
+                            
+                            st.info(status)
+                            if parsed_data:
+                                st.write("Successfully extracted data:")
+                                # Display as a simple list for this test
+                                st.write(parsed_data)
+                        else:
+                            st.error("Could not extract NCT ID from the selected URL.")
+                else:
+                    st.warning("Please select a document to test.")
+        else:
+            st.info("No ClinicalTrials.gov documents are in the library to test.")
+else:
+    st.info("You must add documents to the Knowledge Library before you can test the parser.")
