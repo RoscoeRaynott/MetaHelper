@@ -243,3 +243,72 @@ def discover_and_normalize_metrics_from_library():
     metrics_df = metrics_df.sort_values(by="Found in # Docs", ascending=False).reset_index(drop=True)
     
     return metrics_df, "Metric discovery and normalization complete."
+
+# In query_handler.py, add this new function at the end of the file
+
+def extract_outcome_from_doc(source_url, outcome_of_interest):
+    """
+    Performs a targeted RAG query on a single document to extract all values
+    for a specific outcome of interest.
+    """
+    vector_store = st.session_state.get('vector_store', None)
+    if not vector_store:
+        return None, "Vector Store not found in session."
+
+    llm = get_llm()
+    if not llm:
+        return None, "LLM not initialized."
+
+    # --- The Smart Retriever ---
+    # Create a retriever filtered to search ONLY within the specified document
+    # AND only within the most relevant sections for outcome data.
+    retriever = vector_store.as_retriever(
+        search_kwargs={
+            'k': 10, # Retrieve more chunks to ensure we don't miss context
+            'filter': {
+                "$and": [
+                    {'source': source_url},
+                    {'section': {"$in": ["Results", "Conclusion", "Abstract", "Outcomes"]}}
+                ]
+            }
+        }
+    )
+    
+    # Use the retriever to get the context first
+    relevant_chunks = retriever.get_relevant_documents(outcome_of_interest)
+    if not relevant_chunks:
+        return ["N/A (No relevant sections found)"], "Extraction complete."
+        
+    context_string = "\n\n---\n\n".join([doc.page_content for doc in relevant_chunks])
+    # --- End Smart Retriever ---
+
+    # This prompt asks the LLM to find all mentions of the outcome value
+    extraction_prompt = f"""
+    Here is context from the "Abstract", "Results", "Conclusion", or "Outcomes" sections of a research paper:
+    --- CONTEXT START ---
+    {context_string}
+    --- CONTEXT END ---
+
+    Based ONLY on the context provided, find and list ALL reported values for the specific outcome: "{outcome_of_interest}".
+    Extract the full value, including numbers, units, and confidence intervals or standard deviations (e.g., "5.2 ± 0.8 kg", "10% reduction", "p < 0.05").
+    
+    Your response MUST be a valid JSON object with a single key "findings", which is a list of strings.
+    If no specific values are found for this outcome, return an empty list: {{"findings": []}}
+    """
+
+    try:
+        result = llm.invoke(extraction_prompt)
+        answer_json = json.loads(result.content)
+        findings_list = answer_json.get('findings', [])
+        
+        if not findings_list:
+            return ["N/A (Value not found in text)"], "Extraction complete."
+            
+        return findings_list, "Extraction successful."
+        
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        st.error(f"Failed to parse LLM response during extraction: {e}")
+        st.write("LLM Raw Output:", result.content if 'result' in locals() else "No result object")
+        return None, "Failed to parse LLM response."
+    except Exception as e:
+        return None, f"An error occurred during extraction: {e}"
