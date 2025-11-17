@@ -177,57 +177,57 @@ def process_single_link(url):
     
     return full_text_for_display, text_chunks_with_metadata
 
-def parse_outcome_table(soup, table_title):
-    """
-    Finds a specific table by its preceding h2 title and parses it.
-    Returns a list of formatted strings, e.g., ["Group A: 10 (5%)", "Group B: 12 (6%)"].
-    """
-    found_data = []
-    try:
-        # Find the <h2> tag that contains the exact table title
-        header_tag = soup.find(['h2','h3','h4'], string=lambda t: t and table_title.strip().lower() in t.strip().lower())
+# def parse_outcome_table(soup, table_title):
+#     """
+#     Finds a specific table by its preceding h2 title and parses it.
+#     Returns a list of formatted strings, e.g., ["Group A: 10 (5%)", "Group B: 12 (6%)"].
+#     """
+#     found_data = []
+#     try:
+#         # Find the <h2> tag that contains the exact table title
+#         header_tag = soup.find(['h2','h3','h4'], string=lambda t: t and table_title.strip().lower() in t.strip().lower())
         
-        if not header_tag:
-            return None # Table title not found on the page
+#         if not header_tag:
+#             return None # Table title not found on the page
 
-        # Find the <table> element that immediately follows the header
-        table = header_tag.find_next('table')
-        if not table:
-            return None # No table found after the header
+#         # Find the <table> element that immediately follows the header
+#         table = header_tag.find_next('table')
+#         if not table:
+#             return None # No table found after the header
 
-        # --- Table Parsing Logic ---
-        headers = [th.get_text(strip=True) for th in table.find('thead').find_all('th')]
-        # We are interested in the Arm/Group titles, which start from the second column
-        group_titles = headers[1:] 
+#         # --- Table Parsing Logic ---
+#         headers = [th.get_text(strip=True) for th in table.find('thead').find_all('th')]
+#         # We are interested in the Arm/Group titles, which start from the second column
+#         group_titles = headers[1:] 
         
-        # Find the row that contains the data (e.g., "Count of Participants")
-        data_row = None
-        for tr in table.find('tbody').find_all('tr'):
-            # The data we want is often in a row with a `th` scope="row" tag
-            row_header = tr.find('th', {'scope': 'row'})
-            if row_header and "Count of Participants" in row_header.get_text():
-                data_row = tr
-                break
+#         # Find the row that contains the data (e.g., "Count of Participants")
+#         data_row = None
+#         for tr in table.find('tbody').find_all('tr'):
+#             # The data we want is often in a row with a `th` scope="row" tag
+#             row_header = tr.find('th', {'scope': 'row'})
+#             if row_header and "Count of Participants" in row_header.get_text():
+#                 data_row = tr
+#                 break
         
-        if not data_row:
-            return None # Could not find the specific data row
+#         if not data_row:
+#             return None # Could not find the specific data row
 
-        # Extract the numerical values from the data cells (td)
-        values = [td.get_text(strip=True) for td in data_row.find_all('td')]
+#         # Extract the numerical values from the data cells (td)
+#         values = [td.get_text(strip=True) for td in data_row.find_all('td')]
 
-        # Combine the group titles with their corresponding values
-        for i, title in enumerate(group_titles):
-            if i < len(values):
-                # Replace newline characters inside the value for cleaner output
-                cleaned_value = values[i].replace('\n', ' ')
-                found_data.append(f"{title}: {cleaned_value}")
+#         # Combine the group titles with their corresponding values
+#         for i, title in enumerate(group_titles):
+#             if i < len(values):
+#                 # Replace newline characters inside the value for cleaner output
+#                 cleaned_value = values[i].replace('\n', ' ')
+#                 found_data.append(f"{title}: {cleaned_value}")
 
-        return found_data
+#         return found_data
 
-    except Exception as e:
-        # This will catch errors during parsing (e.g., if a table has an unexpected structure)
-        print(f"Error parsing table '{table_title}': {e}")
-        return None
+#     except Exception as e:
+#         # This will catch errors during parsing (e.g., if a table has an unexpected structure)
+#         print(f"Error parsing table '{table_title}': {e}")
+#         return None
 
 def extract_ct_gov_outcome_from_api(nct_id, user_outcome_of_interest):
     """
