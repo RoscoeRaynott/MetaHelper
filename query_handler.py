@@ -378,31 +378,52 @@ def generate_outcome_table(outcome_of_interest):
     df = pd.DataFrame(table_data)
     return df, "Table generation complete."
 
-    # def test_table_parser(source_url, exact_table_title):
-    # """
-    # A temporary function to test the new table parser.
-    # """
-    # # We need to import the new function and some libraries
-    # from data_ingestor import _parse_outcome_table
-    # import requests
-    # from bs4 import BeautifulSoup
+    # In query_handler.py, add this new function at the end of the file
 
-    # st.info(f"Attempting to parse table '{exact_table_title}' from {source_url}")
+def find_relevant_table_titles(all_titles, user_outcome_of_interest):
+    """
+    Uses an LLM to select the most relevant titles from a list based on the user's outcome.
+    """
+    llm = get_llm()
+    if not llm:
+        return None, "LLM not initialized."
+
+    # We need to remove the prefixes like "[Baseline]" for the LLM prompt
+    # but keep them for mapping back later.
+    titles_for_prompt = [title.split("] ", 1)[1] for title in all_titles]
+    titles_string = "\n".join(f"- {title}" for title in titles_for_prompt)
+
+    locator_prompt = f"""
+    A user is interested in the outcome: "{user_outcome_of_interest}".
+    From the following list of available data tables and metrics, identify ALL items that are semantically relevant to the user's interest.
     
-    # # Step 1: Fetch the raw HTML
-    # try:
-    #     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-    #     response = requests.get(source_url, headers=headers, timeout=15)
-    #     response.raise_for_status()
-    #     html_content = response.text
-    #     soup = BeautifulSoup(html_content, 'html.parser')
-    # except requests.exceptions.RequestException as e:
-    #     return None, f"Failed to fetch HTML: {e}"
+    List of Available Items:
+    {titles_string}
 
-    # # Step 2: Call the new parsing engine
-    # extracted_data = _parse_outcome_table(soup, exact_table_title)
+    Respond with only the exact titles from the list that match. If multiple are relevant, list each on a new line. If none are relevant, respond with an empty string.
+    """
 
-    # if extracted_data:
-    #     return extracted_data, "Table parsing successful."
-    # else:
-    #     return None, "Failed to find or parse the specified table."
+    try:
+        response_content = llm.invoke(locator_prompt).content.strip()
+        selected_titles_from_llm = {line.strip() for line in response_content.split("\n") if line.strip()}
+
+        # Now, map the LLM's selection back to the original titles with prefixes
+        final_relevant_titles = [
+            original_title for original_title in all_titles 
+            if original_title.split("] ", 1)[1] in selected_titles_from_llm
+        ]
+        
+        if not final_relevant_titles:
+            return [], "LLM did not find any relevant titles."
+
+        return final_relevant_titles, "Successfully identified relevant titles."
+
+    except Exception as e:
+        st.error(f"An error occurred during the LLM locator step: {e}")
+        # Fallback to simple string matching if the LLM fails
+        st.warning("LLM locator failed. Falling back to simple keyword matching.")
+        fallback_titles = [
+            title for title in all_titles 
+            if user_outcome_of_interest.lower() in title.lower()
+        ]
+        return fallback_titles, "Used fallback keyword matching."
