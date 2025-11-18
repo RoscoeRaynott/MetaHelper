@@ -23,14 +23,13 @@ def get_llm():
             # model_kwargs={
             #     "response_format": {"type": "json_object"} # Instruct the model to output JSON
             # }
-            model_name="anthropic/claude-3.5-sonnet",
+            model_name="google/gemma-2-9b-it",
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0,
-            max_tokens=8192,
-            # Note: Claude does not support the "json_object" response format in the same way.
-            # We will remove this for now as our prompt is simple.
-            # model_kwargs={"response_format": {"type": "json_object"}}
+            max_tokens=4096, # Gemma 2 has an 8k context window, 4k for output is safe
+            # We can try re-enabling JSON mode, as many modern models support it
+            model_kwargs={"response_format": {"type": "json_object"}}
         )
         return llm
     except Exception as e:
