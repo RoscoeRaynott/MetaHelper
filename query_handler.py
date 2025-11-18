@@ -393,6 +393,14 @@ def find_relevant_table_titles(all_titles, user_outcome_of_interest):
     titles_for_prompt = [title.split("] ", 1)[1] for title in all_titles]
     titles_string = "\n".join(f"- {title}" for title in titles_for_prompt)
 
+    # --- NEW: DEBUGGING ---
+    st.warning("--- DEBUG: Data Sent to LLM Locator ---")
+    st.write("**User Outcome of Interest:**", user_outcome_of_interest)
+    st.write("**List of Titles Sent to LLM:**")
+    st.text(titles_string)
+    st.warning("--- END DEBUG ---")
+    # --- END NEW ---
+    
     locator_prompt = f"""
     The user's query is: "{user_outcome_of_interest}"
 
