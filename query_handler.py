@@ -22,6 +22,7 @@ def get_llm():
             # max_tokens=8192,
             # model_kwargs={
             #     "response_format": {"type": "json_object"} # Instruct the model to output JSON
+            # }
             model_name="anthropic/claude-3.5-sonnet",
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
@@ -30,7 +31,6 @@ def get_llm():
             # Note: Claude does not support the "json_object" response format in the same way.
             # We will remove this for now as our prompt is simple.
             # model_kwargs={"response_format": {"type": "json_object"}}
-            }
         )
         return llm
     except Exception as e:
