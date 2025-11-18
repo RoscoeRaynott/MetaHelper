@@ -393,14 +393,16 @@ def find_relevant_table_titles(all_titles, user_outcome_of_interest):
     titles_for_prompt = [title.split("] ", 1)[1] for title in all_titles]
     titles_string = "\n".join(f"- {title}" for title in titles_for_prompt)
 
-    locator_prompt = f"""
-    A user is interested in the outcome: "{user_outcome_of_interest}".
-    From the following list of available data tables and metrics, identify ALL items that are semantically relevant to the user's interest.
-    
-    List of Available Items:
+locator_prompt = f"""
+    You are a data mapping assistant. Your task is to find the best matches for a user's query from a predefined list of table titles.
+    The user is looking for the outcome: "{user_outcome_of_interest}".
+
+    Here is the list of available table titles:
     {titles_string}
 
-    Respond with only the exact titles from the list that match. If multiple are relevant, list each on a new line. If none are relevant, respond with an empty string.
+    From the list above, which titles are the most semantically relevant to the user's query?
+    Your response MUST contain only the exact, full titles from the list, one per line.
+    Do not add any commentary or explanation. If you cannot find a perfect match, return the closest possible match from the list.
     """
 
     try:
