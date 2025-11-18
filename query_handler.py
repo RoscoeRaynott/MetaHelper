@@ -460,19 +460,19 @@ def find_relevant_table_titles(all_titles, user_outcome_of_interest):
     titles_string = "\n".join(f"{i+1}. {title}" for i, title in enumerate(titles_for_prompt))
 
     # Strategy 2: Extremely strict prompt with multiple constraints
-    locator_prompt = f"""You must respond with ONLY a number between 1 and {len(titles_for_prompt)}.
+    locator_prompt = f"""You must respond with ONLY numbers separated by commas.
 
 User query: "{user_outcome_of_interest}"
 
-Select the single best match from this list:
+Select ALL relevant matches from this list (maximum 4 most relevant):
 {titles_string}
 
 CRITICAL INSTRUCTIONS:
-- Output ONLY the number (e.g., "3")
+- Output ONLY numbers separated by commas (e.g., "3,7,12" or "5")
 - Do NOT write any explanation
-- Do NOT write "The best match is..."
+- Do NOT write "The matches are..."
 - Do NOT use JSON
-- Just the number
+- Just the numbers
 
 Your response:"""
 
