@@ -319,3 +319,63 @@ if vector_store_exists:
         st.info("No ClinicalTrials.gov documents are in the library to test.")
 else:
     st.info("You must add documents to the Knowledge Library before you can test this feature.")
+
+# In pages/2_Analyze_Papers.py
+# ADD THIS ENTIRE BLOCK TO THE END OF THE FILE
+
+# --- 8. Test Title Locator (LLM Filter) ---
+st.markdown("---")
+st.header("8. Test Title Locator (LLM Filter)")
+
+if st.session_state.get('vector_store'):
+    user_outcome = st.session_state.get('user_outcome_of_interest', '')
+    
+    if not user_outcome:
+        st.warning("To test the locator, please perform a search on the main page with an 'Outcome of Interest' defined.")
+    else:
+        vector_store = st.session_state.get('vector_store')
+        all_docs_metadata = vector_store.get(include=["metadatas"])
+        ct_sources = sorted(list(set(
+            meta['source'] for meta in all_docs_metadata['metadatas'] 
+            if "clinicaltrials.gov" in meta['source']
+        )))
+        
+        if ct_sources:
+            st.info(f"This will first get all table titles for a document, then use an LLM to select the ones relevant to: **'{user_outcome}'**")
+            doc_to_locate = st.selectbox(
+                "Select a ClinicalTrials.gov document to test the locator on:", 
+                options=ct_sources,
+                key="ct_gov_locator_test"
+            )
+            
+            if st.button("Find Relevant Titles"):
+                if doc_to_locate:
+                    with st.spinner(f"Step 1: Getting all titles from {doc_to_locate}..."):
+                        from data_ingestor import get_ct_gov_table_titles_from_api
+                        import re
+                        nct_match = re.search(r'NCT\d+', doc_to_locate)
+                        if not nct_match:
+                            st.error("Could not extract NCT ID.")
+                        else:
+                            nct_id = nct_match.group(0)
+                            all_titles, status = get_ct_gov_table_titles_from_api(nct_id)
+                    
+                    if all_titles:
+                        st.write("Found all titles. Now running Step 2: LLM Selection...")
+                        with st.spinner("Asking LLM to find relevant titles..."):
+                            from query_handler import find_relevant_table_titles
+                            
+                            relevant_titles, status = find_relevant_table_titles(all_titles, user_outcome)
+                        
+                        st.info(status)
+                        if relevant_titles:
+                            st.write("LLM identified the following relevant titles:")
+                            st.dataframe(relevant_titles)
+                        else:
+                            st.warning("LLM did not identify any relevant titles from the list.")
+                else:
+                    st.warning("Please select a document to test.")
+        else:
+            st.info("No ClinicalTrials.gov documents are in the library to test.")
+else:
+    st.info("You must add documents to the Knowledge Library before you can test this feature.")
