@@ -19,9 +19,9 @@ def get_llm():
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0, # Crucial for factual, non-creative extraction
-            max_tokens=8192,
-            model_kwargs={
-                "response_format": {"type": "json_object"} # Instruct the model to output JSON
+            max_tokens=100,
+            # model_kwargs={
+            #     "response_format": {"type": "json_object"} # Instruct the model to output JSON
             }
             # model_name="google/gemma-2-9b-it",
             # openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
