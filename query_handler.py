@@ -488,13 +488,19 @@ Your response:"""
         
         # Strategy 4: Multiple parsing methods
         
-        # Method A: Direct integer parsing
+        # Method A: Parse comma-separated numbers
         try:
-            selected_index = int(response_content) - 1  # Convert to 0-based index
-            if 0 <= selected_index < len(all_titles):
-                selected_title = all_titles[selected_index]
-                st.success(f"✓ Successfully matched to: {selected_title}")
-                return [selected_title], "Successfully identified relevant title."
+            # Split by comma and parse each number
+            numbers = [int(n.strip()) for n in response_content.replace(' ', '').split(',')]
+            selected_indices = [n - 1 for n in numbers if 0 < n <= len(all_titles)]
+            
+            # Limit to top 4
+            selected_indices = selected_indices[:4]  # <-- THIS IS THE [:4] YOU'RE LOOKING FOR
+            
+            if selected_indices:
+                selected_titles = [all_titles[idx] for idx in selected_indices]
+                st.success(f"✓ Successfully matched to {len(selected_titles)} title(s)")
+                return selected_titles, "Successfully identified relevant titles."
         except ValueError:
             pass  # Try next method
         
