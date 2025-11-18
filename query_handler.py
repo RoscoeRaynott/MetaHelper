@@ -15,21 +15,21 @@ def get_llm():
     try:
         # Use a model known for strong instruction-following and JSON capabilities
         llm = ChatOpenAI(
-            # model_name="meta-llama/llama-3-8b-instruct", # "microsoft/Phi-3-mini-128k-instruct",#"meta-llama/llama-3-8b-instruct",
-            # openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
-            # openai_api_base="https://openrouter.ai/api/v1",
-            # temperature=0.0, # Crucial for factual, non-creative extraction
-            # max_tokens=8192,
-            # model_kwargs={
-            #     "response_format": {"type": "json_object"} # Instruct the model to output JSON
-            # }
-            model_name="google/gemma-2-9b-it",
+            model_name="meta-llama/llama-3-8b-instruct", # "microsoft/Phi-3-mini-128k-instruct",#"meta-llama/llama-3-8b-instruct",
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
-            temperature=0.0,
-            max_tokens=4096, # Gemma 2 has an 8k context window, 4k for output is safe
-            # We can try re-enabling JSON mode, as many modern models support it
-            model_kwargs={"response_format": {"type": "json_object"}}
+            temperature=0.0, # Crucial for factual, non-creative extraction
+            max_tokens=8192,
+            model_kwargs={
+                "response_format": {"type": "json_object"} # Instruct the model to output JSON
+            }
+            # model_name="google/gemma-2-9b-it",
+            # openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
+            # openai_api_base="https://openrouter.ai/api/v1",
+            # temperature=0.0,
+            # max_tokens=4096, # Gemma 2 has an 8k context window, 4k for output is safe
+            # # We can try re-enabling JSON mode, as many modern models support it
+            # model_kwargs={"response_format": {"type": "json_object"}}
         )
         return llm
     except Exception as e:
