@@ -15,13 +15,21 @@ def get_llm():
     try:
         # Use a model known for strong instruction-following and JSON capabilities
         llm = ChatOpenAI(
-            model_name="meta-llama/llama-3-8b-instruct", # "microsoft/Phi-3-mini-128k-instruct",#"meta-llama/llama-3-8b-instruct",
+            # model_name="meta-llama/llama-3-8b-instruct", # "microsoft/Phi-3-mini-128k-instruct",#"meta-llama/llama-3-8b-instruct",
+            # openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
+            # openai_api_base="https://openrouter.ai/api/v1",
+            # temperature=0.0, # Crucial for factual, non-creative extraction
+            # max_tokens=8192,
+            # model_kwargs={
+            #     "response_format": {"type": "json_object"} # Instruct the model to output JSON
+            model_name="anthropic/claude-3.5-sonnet",
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
-            temperature=0.0, # Crucial for factual, non-creative extraction
+            temperature=0.0,
             max_tokens=8192,
-            model_kwargs={
-                "response_format": {"type": "json_object"} # Instruct the model to output JSON
+            # Note: Claude does not support the "json_object" response format in the same way.
+            # We will remove this for now as our prompt is simple.
+            # model_kwargs={"response_format": {"type": "json_object"}}
             }
         )
         return llm
