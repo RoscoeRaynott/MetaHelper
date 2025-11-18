@@ -387,58 +387,168 @@ def generate_outcome_table(outcome_of_interest):
 
     # In query_handler.py, add this new function at the end of the file
 
+# def find_relevant_table_titles(all_titles, user_outcome_of_interest):
+#     """
+#     Uses an LLM to select the most relevant titles from a list based on the user's outcome.
+#     """
+#     llm = get_llm()
+#     if not llm:
+#         return None, "LLM not initialized."
+
+#     # We need to remove the prefixes like "[Baseline]" for the LLM prompt
+#     # but keep them for mapping back later.
+#     titles_for_prompt = [title.split("] ", 1)[1] for title in all_titles]
+#     titles_string = "\n".join(f"- {title}" for title in titles_for_prompt)
+
+#     # --- NEW: DEBUGGING ---
+#     st.warning("--- DEBUG: Data Sent to LLM Locator ---")
+#     st.write("**User Outcome of Interest:**", user_outcome_of_interest)
+#     st.write("**List of Titles Sent to LLM:**")
+#     st.text(titles_string)
+#     st.warning("--- END DEBUG ---")
+#     # --- END NEW ---
+    
+#     locator_prompt = f"""
+#     The user's query is: "{user_outcome_of_interest}"
+
+#     From the following list, select the item that is the best semantic match to the user's query.
+#     Return ONLY the single best matching item, exactly as it appears in the list. Do not add any other text.
+
+#     List of items:
+#     {titles_string}
+#     """
+
+#     try:
+#         response_content = llm.invoke(locator_prompt).content.strip()
+#         selected_titles_from_llm = {line.strip() for line in response_content.split("\n") if line.strip()}
+
+#         # Now, map the LLM's selection back to the original titles with prefixes
+#         final_relevant_titles = [
+#             original_title for original_title in all_titles 
+#             if original_title.split("] ", 1)[1] in selected_titles_from_llm
+#         ]
+        
+#         if not final_relevant_titles:
+#             return [], "LLM did not find any relevant titles."
+
+#         return final_relevant_titles, "Successfully identified relevant titles."
+
+#     except Exception as e:
+#         st.error(f"An error occurred during the LLM locator step: {e}")
+#         # Fallback to simple string matching if the LLM fails
+#         st.warning("LLM locator failed. Falling back to simple keyword matching.")
+#         fallback_titles = [
+#             title for title in all_titles 
+#             if user_outcome_of_interest.lower() in title.lower()
+#         ]
+#         return fallback_titles, "Used fallback keyword matching."
+
+
 def find_relevant_table_titles(all_titles, user_outcome_of_interest):
     """
-    Uses an LLM to select the most relevant titles from a list based on the user's outcome.
+    Uses an LLM to select the most relevant title from a list based on the user's outcome.
+    Enhanced with multiple strategies to force concise output.
     """
     llm = get_llm()
     if not llm:
         return None, "LLM not initialized."
 
-    # We need to remove the prefixes like "[Baseline]" for the LLM prompt
-    # but keep them for mapping back later.
-    titles_for_prompt = [title.split("] ", 1)[1] for title in all_titles]
-    titles_string = "\n".join(f"- {title}" for title in titles_for_prompt)
-
-    # --- NEW: DEBUGGING ---
-    st.warning("--- DEBUG: Data Sent to LLM Locator ---")
-    st.write("**User Outcome of Interest:**", user_outcome_of_interest)
-    st.write("**List of Titles Sent to LLM:**")
-    st.text(titles_string)
-    st.warning("--- END DEBUG ---")
-    # --- END NEW ---
+    # Remove prefixes for cleaner matching
+    titles_for_prompt = [title.split("] ", 1)[1] if "] " in title else title for title in all_titles]
     
-    locator_prompt = f"""
-    The user's query is: "{user_outcome_of_interest}"
+    # Strategy 1: Numbered list for easier parsing
+    titles_string = "\n".join(f"{i+1}. {title}" for i, title in enumerate(titles_for_prompt))
 
-    From the following list, select the item that is the best semantic match to the user's query.
-    Return ONLY the single best matching item, exactly as it appears in the list. Do not add any other text.
+    # Strategy 2: Extremely strict prompt with multiple constraints
+    locator_prompt = f"""You must respond with ONLY a number between 1 and {len(titles_for_prompt)}.
 
-    List of items:
-    {titles_string}
-    """
+User query: "{user_outcome_of_interest}"
+
+Select the single best match from this list:
+{titles_string}
+
+CRITICAL INSTRUCTIONS:
+- Output ONLY the number (e.g., "3")
+- Do NOT write any explanation
+- Do NOT write "The best match is..."
+- Do NOT use JSON
+- Just the number
+
+Your response:"""
 
     try:
-        response_content = llm.invoke(locator_prompt).content.strip()
-        selected_titles_from_llm = {line.strip() for line in response_content.split("\n") if line.strip()}
-
-        # Now, map the LLM's selection back to the original titles with prefixes
-        final_relevant_titles = [
-            original_title for original_title in all_titles 
-            if original_title.split("] ", 1)[1] in selected_titles_from_llm
+        # Strategy 3: Reduce max_tokens drastically to prevent long responses
+        response = llm.invoke(locator_prompt)
+        response_content = response.content.strip()
+        
+        # --- DEBUGGING OUTPUT ---
+        st.warning("--- DEBUG: LLM Response ---")
+        st.write("**Raw LLM Output:**", response_content)
+        st.warning("--- END DEBUG ---")
+        
+        # Strategy 4: Multiple parsing methods
+        
+        # Method A: Direct integer parsing
+        try:
+            selected_index = int(response_content) - 1  # Convert to 0-based index
+            if 0 <= selected_index < len(all_titles):
+                selected_title = all_titles[selected_index]
+                st.success(f"✓ Successfully matched to: {selected_title}")
+                return [selected_title], "Successfully identified relevant title."
+        except ValueError:
+            pass  # Try next method
+        
+        # Method B: Extract first number from response
+        import re
+        numbers = re.findall(r'\b(\d+)\b', response_content)
+        if numbers:
+            selected_index = int(numbers[0]) - 1
+            if 0 <= selected_index < len(all_titles):
+                selected_title = all_titles[selected_index]
+                st.success(f"✓ Successfully matched to: {selected_title}")
+                return [selected_title], "Successfully identified relevant title."
+        
+        # Method C: Fuzzy string matching (fallback)
+        st.warning("Could not parse number, attempting fuzzy matching...")
+        from difflib import SequenceMatcher
+        
+        best_match = None
+        best_score = 0
+        
+        for original_title in all_titles:
+            clean_title = original_title.split("] ", 1)[1] if "] " in original_title else original_title
+            score = SequenceMatcher(None, response_content.lower(), clean_title.lower()).ratio()
+            if score > best_score:
+                best_score = score
+                best_match = original_title
+        
+        if best_match and best_score > 0.3:  # Threshold for acceptable match
+            st.info(f"Fuzzy match found (score: {best_score:.2f}): {best_match}")
+            return [best_match], "Used fuzzy matching fallback."
+        
+        # Method D: Keyword matching (final fallback)
+        st.warning("Fuzzy matching failed. Using keyword matching...")
+        keyword_matches = [
+            title for title in all_titles 
+            if user_outcome_of_interest.lower() in title.lower()
         ]
         
-        if not final_relevant_titles:
-            return [], "LLM did not find any relevant titles."
-
-        return final_relevant_titles, "Successfully identified relevant titles."
+        if keyword_matches:
+            return keyword_matches, "Used keyword matching fallback."
+        
+        return [], "Could not identify any relevant titles."
 
     except Exception as e:
         st.error(f"An error occurred during the LLM locator step: {e}")
-        # Fallback to simple string matching if the LLM fails
-        st.warning("LLM locator failed. Falling back to simple keyword matching.")
+        
+        # Ultimate fallback: keyword matching
+        st.warning("LLM locator failed completely. Using keyword matching fallback.")
         fallback_titles = [
             title for title in all_titles 
             if user_outcome_of_interest.lower() in title.lower()
         ]
-        return fallback_titles, "Used fallback keyword matching."
+        
+        if fallback_titles:
+            return fallback_titles, "Used keyword matching fallback after error."
+        else:
+            return [], "No matches found even with keyword fallback."
