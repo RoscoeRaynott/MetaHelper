@@ -495,7 +495,7 @@ Your response:"""
             selected_indices = [n - 1 for n in numbers if 0 < n <= len(all_titles)]
             
             # Limit to top 4
-            selected_indices = selected_indices[:4]  # <-- THIS IS THE [:4] YOU'RE LOOKING FOR
+            selected_indices = selected_indices[:1]  # <-- THIS IS THE [:4] YOU'RE LOOKING FOR
             
             if selected_indices:
                 selected_titles = [all_titles[idx] for idx in selected_indices]
