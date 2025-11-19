@@ -306,12 +306,6 @@ def get_ct_gov_table_titles_from_api(nct_id):
 
         all_titles = []
 
-        # 1. Baseline Characteristics
-        baseline_module = results_section.get('baselineCharacteristicsModule', {})
-        for measure in baseline_module.get('measures', []):
-            if measure.get('title'):
-                all_titles.append(f"[Baseline] {measure['title']}")
-
         # 2. Outcome Measures
         outcome_module = results_section.get('outcomeMeasuresModule', {})
         for measure in outcome_module.get('outcomeMeasures', []):
@@ -334,6 +328,12 @@ def get_ct_gov_table_titles_from_api(nct_id):
                 if event.get('term'):
                     all_titles.append(f"[Adverse-Other] {event['term']}")
                     
+        # 1. Baseline Characteristics
+        baseline_module = results_section.get('baselineCharacteristicsModule', {})
+        for measure in baseline_module.get('measures', []):
+            if measure.get('title'):
+                all_titles.append(f"[Baseline] {measure['title']}")
+        
         if not all_titles:
             return [], "Results section was found, but it contains no data tables."
 
