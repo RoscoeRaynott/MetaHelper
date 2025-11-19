@@ -464,7 +464,7 @@ def find_relevant_table_titles(all_titles, user_outcome_of_interest):
 
 User query: "{user_outcome_of_interest}"
 
-Select ALL relevant matches from this list (maximum 4 most relevant):
+Select ALL relevant matches from this list (maximum 3 most relevant):
 {titles_string}
 
 CRITICAL INSTRUCTIONS:
