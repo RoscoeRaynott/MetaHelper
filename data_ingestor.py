@@ -343,3 +343,121 @@ def get_ct_gov_table_titles_from_api(nct_id):
         return None, f"API request failed: {str(e)}"
     except (ValueError, KeyError) as e:
         return None, f"Failed to parse JSON or find a key: {str(e)}"
+
+def extract_data_for_selected_titles(nct_id, selected_titles):
+    """
+    Fetches API data and extracts values.
+    Strictly follows the JSON structure:
+    - Baseline: Uses baselineCharacteristicsModule/groups
+    - Outcome: Uses outcomeMeasuresModule/outcomeMeasures/groups
+    - Adverse: Uses adverseEventsModule/eventGroups
+    """
+    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(api_url, headers=headers, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+        
+        results = data.get('resultsSection', {})
+        if not results: return None, "No results section."
+
+        extracted_results = {}
+
+        for full_title in selected_titles:
+            if "] " not in full_title: continue
+            tag, clean_title = full_title.split("] ", 1)
+            tag = tag + "]"
+            
+            findings = []
+
+            # --- CASE 1: BASELINE CHARACTERISTICS ---
+            if tag == "[Baseline]":
+                module = results.get('baselineCharacteristicsModule', {})
+                # 1. Get the groups specific to Baseline
+                groups = module.get('groups', [])
+                group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
+                
+                # 2. Find the measure
+                measure = next((m for m in module.get('measures', []) if m.get('title') == clean_title), None)
+                
+                if measure:
+                    # 3. Extract data (classes -> categories -> measurements)
+                    for cls in measure.get('classes', []):
+                        for cat in cls.get('categories', []):
+                            for meas in cat.get('measurements', []):
+                                gid = meas.get('groupId')
+                                val = meas.get('value', 'N/A')
+                                if meas.get('spread'): val += f" ({meas['spread']})"
+                                
+                                group_name = group_map.get(gid, gid)
+                                findings.append(f"{group_name}: {val}")
+
+            # --- CASE 2: OUTCOME MEASURES ---
+            elif tag == "[Outcome]":
+                module = results.get('outcomeMeasuresModule', {})
+                # 1. Find the specific outcome measure first
+                measure = next((m for m in module.get('outcomeMeasures', []) if m.get('title') == clean_title), None)
+                
+                if measure:
+                    # 2. Get the groups specific to THIS Outcome Measure
+                    groups = measure.get('groups', [])
+                    group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
+
+                    # 3. Extract data (classes -> categories -> measurements)
+                    for cls in measure.get('classes', []):
+                        for cat in cls.get('categories', []):
+                            for meas in cat.get('measurements', []):
+                                gid = meas.get('groupId')
+                                val = meas.get('value', 'N/A')
+                                # Add confidence intervals or spread if available
+                                if meas.get('spread'): 
+                                    val += f" ({meas['spread']})"
+                                elif meas.get('lowerLimit') and meas.get('upperLimit'):
+                                    val += f" ({meas['lowerLimit']} to {meas['upperLimit']})"
+                                
+                                group_name = group_map.get(gid, gid)
+                                findings.append(f"{group_name}: {val}")
+
+            # --- CASE 3: ADVERSE EVENTS ---
+            elif tag.startswith("[Adverse"):
+                module = results.get('adverseEventsModule', {})
+                # 1. Get the groups specific to Adverse Events
+                groups = module.get('eventGroups', [])
+                group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
+
+                if "All-Cause Mortality" in clean_title:
+                    # Sub-case: Mortality (Data is directly in eventGroups)
+                    for g in groups:
+                        gid = g.get('id')
+                        count = g.get('deathsNumAffected')
+                        at_risk = g.get('deathsNumAtRisk')
+                        if count is not None:
+                            val = f"{count}/{at_risk}" if at_risk else f"{count}"
+                            findings.append(f"{group_map.get(gid, gid)}: {val}")
+                
+                else:
+                    # Sub-case: Serious or Other Events (Data is in stats list)
+                    event_list = module.get('seriousEvents', []) + module.get('otherEvents', [])
+                    event = next((e for e in event_list if e.get('term') == clean_title), None)
+                    
+                    if event:
+                        for stat in event.get('stats', []):
+                            gid = stat.get('groupId')
+                            count = stat.get('numAffected')
+                            at_risk = stat.get('numAtRisk')
+                            if count is not None:
+                                val = f"{count}/{at_risk}" if at_risk else f"{count}"
+                                group_name = group_map.get(gid, gid)
+                                findings.append(f"{group_name}: {val}")
+
+            # Format the result
+            if findings:
+                extracted_results[full_title] = " | ".join(findings)
+            else:
+                extracted_results[full_title] = "Data not found"
+
+        return extracted_results, "Extraction complete."
+
+    except Exception as e:
+        return None, f"API Error: {e}"
