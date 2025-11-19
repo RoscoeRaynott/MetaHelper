@@ -371,6 +371,26 @@ if st.session_state.get('vector_store'):
                         if relevant_titles:
                             st.write("LLM identified the following relevant titles:")
                             st.dataframe(relevant_titles)
+                            # --- NEW: Run Extraction on these titles ---
+                            st.markdown("---")
+                            st.info("Step 3: Extracting Data for Selected Titles...")
+                            
+                            # Import our new function
+                            from data_ingestor import extract_data_for_selected_titles
+                            
+                            # Call the function with the NCT ID and the list of titles found by the LLM
+                            extracted_data, ext_status = extract_data_for_selected_titles(nct_id, relevant_titles)
+                            
+                            if extracted_data:
+                                st.success("Data Extraction Successful!")
+                                # Display the results in a nice table
+                                st.table([
+                                    {"Metric/Table Name": k, "Extracted Values": v} 
+                                    for k, v in extracted_data.items()
+                                ])
+                            else:
+                                st.error(f"Extraction failed: {ext_status}")
+                            # --- END NEW ---
                         else:
                             st.warning("LLM did not identify any relevant titles from the list.")
                 else:
