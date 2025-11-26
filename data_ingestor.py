@@ -1,363 +1,178 @@
-# data_ingestor.py (NEW VERSION)
+# data_ingestor.py (API Version)
 
+import streamlit as st
 import requests
 from bs4 import BeautifulSoup
 import re
-import time
-import streamlit as st
 
-def fetch_content_from_url(url):
+# --- 1. PMC API Fetching Logic ---
+
+def fetch_pmc_xml(pmc_id):
     """
-    Fetches the raw HTML content from a given URL with robust error handling.
+    Fetches the full text XML of a paper from PubMed Central using the NCBI API.
     """
+    api_key = st.secrets.get("NCBI_API_KEY")
+    email = st.secrets.get("EMAIL_FOR_NCBI", "your_email@example.com")
+    
+    base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
+    params = {
+        "db": "pmc",
+        "id": pmc_id,
+        "retmode": "xml",
+        "tool": "streamlit_app_rag",
+        "email": email
+    }
+    if api_key:
+        params["api_key"] = api_key
+
     try:
-        # More complete headers to mimic a real browser
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Cache-Control': 'max-age=0',
-        }
-        
-        # Add a small delay to be respectful to servers
-        time.sleep(1)
-        
-        response = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
-        
-        # Debug: Show what status code we got
-        st.info(f"HTTP Status Code: {response.status_code}")
-        
-        # Check for specific error codes
-        if response.status_code == 403:
-            st.error(f"🚫 403 Forbidden: The server is blocking automated requests to {url}")
-            st.warning("Try one of these solutions:")
-            st.write("1. Use the PMC API instead of web scraping")
-            st.write("2. Download the article manually and upload the PDF")
-            st.write("3. Use PMC's FTP server for bulk downloads")
-            return None
-        elif response.status_code == 404:
-            st.error(f"🔍 404 Not Found: The URL {url} does not exist")
-            return None
-        elif response.status_code != 200:
-            st.error(f"⚠️ HTTP {response.status_code}: Unexpected response from server")
-            return None
-        
-        # Check if we actually got HTML content
-        content_type = response.headers.get('Content-Type', '')
-        if 'text/html' not in content_type:
-            st.warning(f"⚠️ Response is not HTML (Content-Type: {content_type})")
-        
-        return response.text
-        
-    except requests.exceptions.Timeout:
-        st.error(f"⏱️ Timeout: The server took too long to respond. URL: {url}")
-        return None
-    except requests.exceptions.ConnectionError:
-        st.error(f"🌐 Connection Error: Could not connect to {url}. Check your internet connection.")
-        return None
-    except requests.exceptions.TooManyRedirects:
-        st.error(f"🔄 Too Many Redirects: The URL {url} redirected too many times.")
-        return None
+        response = requests.get(base_url, params=params, timeout=25)
+        response.raise_for_status()
+        return response.content # Return bytes for XML parsing
     except requests.exceptions.RequestException as e:
-        st.error(f"❌ Request failed for {url}")
-        st.error(f"Error details: {str(e)}")
-        return None
-    except Exception as e:
-        st.error(f"💥 Unexpected error while fetching {url}")
-        st.error(f"Error type: {type(e).__name__}")
-        st.error(f"Error message: {str(e)}")
+        print(f"PMC API Error for {pmc_id}: {e}")
         return None
 
-def parse_pmc_article(html_content):
+def _xml_table_to_markdown(table_wrap_tag):
     """
-    Parses HTML from a PubMed Central article.
-    Extracts Title, Abstract, Body Text, AND Tables.
+    Converts a PMC XML table wrapper into a Markdown-formatted string.
+    """
+    output = []
+    
+    # Get Caption/Label
+    label = table_wrap_tag.find('label')
+    caption = table_wrap_tag.find('caption')
+    
+    title_text = ""
+    if label: title_text += label.get_text(strip=True) + " "
+    if caption: title_text += caption.get_text(strip=True)
+    
+    if title_text:
+        output.append(f"\n**Table: {title_text}**\n")
+
+    # Parse Table Body
+    table = table_wrap_tag.find('table')
+    if not table: return ""
+
+    # Handle headers
+    thead = table.find('thead')
+    if thead:
+        rows = thead.find_all('tr')
+        for row in rows:
+            cells = row.find_all(['th', 'td'])
+            row_text = " | ".join(cell.get_text(strip=True) for cell in cells)
+            output.append(f"| {row_text} |")
+        # Add separator
+        if rows:
+            output.append("|---" * len(rows[0].find_all(['th', 'td'])) + "|")
+
+    # Handle body
+    tbody = table.find('tbody')
+    rows = tbody.find_all('tr') if tbody else table.find_all('tr')
+
+    for row in rows:
+        cells = row.find_all(['th', 'td'])
+        row_text = " | ".join(cell.get_text(strip=True) for cell in cells)
+        output.append(f"| {row_text} |")
+    
+    return "\n".join(output) + "\n\n"
+
+def parse_pmc_xml(xml_content):
+    """
+    Parses the PMC XML to extract sections and tables.
     Returns a list of (section_title, section_text) tuples.
     """
-    if not html_content:
-        return [], "No HTML content provided."
-
-    soup = BeautifulSoup(html_content, 'html.parser')
+    if not xml_content: return [], "No content."
+    
+    # Use 'xml' parser (requires lxml in requirements.txt)
+    soup = BeautifulSoup(xml_content, 'xml')
     sections_data = []
 
-    # --- Title and Abstract ---
-    title_tag = (soup.find('h1', class_='content-title') or soup.find('h1') or soup.find('title'))
-    title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
-    sections_data.append(("Title", title))
+    # --- Title ---
+    article_title = soup.find('article-title')
+    title_text = article_title.get_text(strip=True) if article_title else "No Title Found"
+    sections_data.append(("Title", title_text))
 
-    abstract_div = (soup.find('div', class_='abstract') or soup.find('div', id=re.compile('abstract.*', re.I)))
-    if abstract_div:
-        sections_data.append(("Abstract", abstract_div.get_text(separator='\n\n', strip=True)))
+    # --- Abstract ---
+    abstract = soup.find('abstract')
+    if abstract:
+        sections_data.append(("Abstract", abstract.get_text(separator='\n\n', strip=True)))
 
-    # --- Body Parsing (Text + Tables) ---
-    body_div = (soup.find('div', class_='jig-ncbiinpagenav') or 
-                soup.find('div', class_=re.compile('article.*', re.I)) or 
-                soup.find('article'))
-    
-    if body_div:
-        current_section_title = "Introduction"
-        current_section_text = ""
-        
-        # Iterate through Headers, Paragraphs, AND Table Wrappers
-        # Updated to include 'tbl-box' based on your finding
-        for element in body_div.find_all(['h2', 'h3', 'p', 'div']):
+    # --- Body Sections ---
+    body = soup.find('body')
+    if body:
+        # PMC XML organizes content into <sec> tags
+        for sec in body.find_all('sec', recursive=False):
+            title_tag = sec.find('title')
+            sec_title = title_tag.get_text(strip=True) if title_tag else "Untitled Section"
             
-            # Case 1: New Section Header
-            if element.name in ['h2', 'h3']:
-                if current_section_text.strip():
-                    sections_data.append((current_section_title, current_section_text.strip()))
-                
-                current_section_title = element.get_text(strip=True)
-                if "method" in current_section_title.lower(): current_section_title = "Methods"
-                elif "result" in current_section_title.lower(): current_section_title = "Results"
-                elif "discussion" in current_section_title.lower() or "conclusion" in current_section_title.lower(): current_section_title = "Conclusion"
-                
-                current_section_text = ""
+            # Normalize titles
+            lower_title = sec_title.lower()
+            if "method" in lower_title: sec_title = "Methods"
+            elif "result" in lower_title: sec_title = "Results"
+            elif "discussion" in lower_title or "conclusion" in lower_title: sec_title = "Conclusion"
+            elif "intro" in lower_title: sec_title = "Introduction"
+
+            sec_content = ""
             
-            # Case 2: Paragraph Text
-            elif element.name == 'p':
-                current_section_text += element.get_text(strip=True) + "\n\n"
+            # Iterate over children to preserve order of text and tables
+            for child in sec.children:
+                if child.name == 'p':
+                    sec_content += child.get_text(strip=True) + "\n\n"
+                elif child.name == 'table-wrap':
+                    sec_content += _xml_table_to_markdown(child)
+                elif child.name == 'sec':
+                    # Handle subsections (flatten them)
+                    sub_title = child.find('title')
+                    if sub_title:
+                        sec_content += f"\n### {sub_title.get_text(strip=True)}\n"
+                    for sub_child in child.find_all(['p', 'table-wrap']):
+                        if sub_child.name == 'p':
+                            sec_content += sub_child.get_text(strip=True) + "\n\n"
+                        elif sub_child.name == 'table-wrap':
+                            sec_content += _xml_table_to_markdown(sub_child)
 
-            # Case 3: Table (Updated Logic)
-            elif element.name == 'div':
-                classes = element.get('class', [])
-                # Check for standard PMC 'table-wrap' OR the specific 'tbl-box' you found
-                if 'table-wrap' in classes or 'tbl-box' in classes:
-                    table_markdown = _table_to_markdown(element)
-                    current_section_text += table_markdown
+            if sec_content.strip():
+                sections_data.append((sec_title, sec_content.strip()))
 
-        if current_section_text.strip():
-            sections_data.append((current_section_title, current_section_text.strip()))
+    return sections_data, "Success" if len(sections_data) > 1 else "Warning: Only title/abstract parsed (Full text might not be Open Access)."
 
-    return sections_data, "Success" if len(sections_data) > 2 else "Warning: Only title and abstract were parsed."
-    
+
+# --- 2. ClinicalTrials.gov Logic (UNCHANGED - KEEP YOUR EXISTING CODE HERE) ---
+
 def parse_clinical_trial_record(nct_id):
     """
     Fetches and parses a ClinicalTrials.gov study and returns a list of (section, text) tuples.
     """
-    if not nct_id:
-        return [], "No NCT ID provided."
-
+    if not nct_id: return [], "No NCT ID provided."
     api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}
         response = requests.get(api_url, headers=headers, timeout=15)
         response.raise_for_status()
         data = response.json()
-
         sections_data = []
         protocol = data.get('protocolSection', {})
-        
         title = protocol.get('identificationModule', {}).get('officialTitle') or protocol.get('identificationModule', {}).get('briefTitle', 'No Title Found')
         sections_data.append(("Title", f"{title} (NCT ID: {nct_id})"))
-
-        if protocol.get('statusModule', {}).get('overallStatus'):
-            sections_data.append(("Status", protocol['statusModule']['overallStatus']))
-        if protocol.get('descriptionModule', {}).get('briefSummary'):
-            sections_data.append(("Summary", protocol['descriptionModule']['briefSummary']))
-        if protocol.get('descriptionModule', {}).get('detailedDescription'):
-            sections_data.append(("Detailed Description", protocol['descriptionModule']['detailedDescription']))
-        if protocol.get('conditionsModule', {}).get('conditions'):
-            sections_data.append(("Conditions", '\n'.join(protocol['conditionsModule']['conditions'])))
-        if protocol.get('eligibilityModule', {}).get('eligibilityCriteria'):
-            sections_data.append(("Eligibility Criteria", protocol['eligibilityModule']['eligibilityCriteria']))
-        
+        if protocol.get('statusModule', {}).get('overallStatus'): sections_data.append(("Status", protocol['statusModule']['overallStatus']))
+        if protocol.get('descriptionModule', {}).get('briefSummary'): sections_data.append(("Summary", protocol['descriptionModule']['briefSummary']))
+        if protocol.get('descriptionModule', {}).get('detailedDescription'): sections_data.append(("Detailed Description", protocol['descriptionModule']['detailedDescription']))
+        if protocol.get('conditionsModule', {}).get('conditions'): sections_data.append(("Conditions", '\n'.join(protocol['conditionsModule']['conditions'])))
+        if protocol.get('eligibilityModule', {}).get('eligibilityCriteria'): sections_data.append(("Eligibility Criteria", protocol['eligibilityModule']['eligibilityCriteria']))
         outcomes_module = protocol.get('outcomesModule', {})
         if outcomes_module:
             outcomes_text = ""
             primary = outcomes_module.get('primaryOutcomes', [])
             secondary = outcomes_module.get('secondaryOutcomes', [])
-            if primary:
-                outcomes_text += "Primary Outcomes:\n" + "\n".join([f"- {o.get('measure', 'N/A')}" for o in primary])
-            if secondary:
-                outcomes_text += "\nSecondary Outcomes:\n" + "\n".join([f"- {o.get('measure', 'N/A')}" for o in secondary])
-            if outcomes_text:
-                sections_data.append(("Outcomes", outcomes_text))
-
-        if data.get('resultsSection'):
-            sections_data.append(("Results", "Detailed results are available in the record's structured data."))
-
+            if primary: outcomes_text += "Primary Outcomes:\n" + "\n".join([f"- {o.get('measure', 'N/A')}" for o in primary])
+            if secondary: outcomes_text += "\nSecondary Outcomes:\n" + "\n".join([f"- {o.get('measure', 'N/A')}" for o in secondary])
+            if outcomes_text: sections_data.append(("Outcomes", outcomes_text))
+        if data.get('resultsSection'): sections_data.append(("Results", "Detailed results are available in the record's structured data."))
         return sections_data, "Success" if sections_data else "No content parsed."
-
     except Exception as e:
         print(f"API request failed for NCT ID {nct_id}: {e}")
         return [], f"API request failed: {str(e)}"
-
-def chunk_text(sections_data, chunk_size=1500, chunk_overlap=200):
-    """
-    Splits text from sections into chunks, each with metadata about its source section.
-    """
-    if not sections_data:
-        return []
-    
-    all_chunks = []
-    for section_title, section_text in sections_data:
-        if not section_text.strip():
-            continue
-        
-        # Use the robust semantic chunker on a per-section basis
-        current_chunk = ""
-        paragraphs = section_text.split('\n\n')
-        for para in paragraphs:
-            if not para.strip():
-                continue
-            if len(current_chunk) + len(para) + 2 <= chunk_size:
-                current_chunk += para + "\n\n"
-            else:
-                if current_chunk:
-                    all_chunks.append({"text": current_chunk.strip(), "section": section_title})
-                current_chunk = para + "\n\n"
-        
-        if current_chunk.strip():
-            all_chunks.append({"text": current_chunk.strip(), "section": section_title})
-            
-    return all_chunks
-
-def process_single_link(url):
-    """
-    Main controller function. Returns a displayable full text and a list of chunk dictionaries.
-    """
-    sections_data = []
-    status = ""
-    # --- FIX: Handle both old and new PMC URL formats ---
-    is_pmc = "ncbi.nlm.nih.gov/pmc/articles" in url or "pmc.ncbi.nlm.nih.gov" in url
-    is_ct_gov = "clinicaltrials.gov/study" in url
-
-    if is_pmc:
-        html_content, error_msg = fetch_content_from_url(url)
-        if not html_content: 
-            return None, f"Failed to fetch content: {error_msg}"
-        sections_data, status = parse_pmc_article(html_content)
-        
-    elif is_ct_gov:
-        nct_match = re.search(r'NCT\d+', url)
-        if not nct_match: return None, "Could not extract NCT ID."
-        sections_data, status = parse_clinical_trial_record(nct_match.group(0))
-    else:
-        return None, "Unrecognized URL."
-
-    if not sections_data:
-        return None, status
-
-    text_chunks_with_metadata = chunk_text(sections_data)
-    full_text_for_display = "\n\n".join([f"## {title}\n\n{text}" for title, text in sections_data])
-    
-    return full_text_for_display, text_chunks_with_metadata
-
-# def parse_outcome_table(soup, table_title):
-#     """
-#     Finds a specific table by its preceding h2 title and parses it.
-#     Returns a list of formatted strings, e.g., ["Group A: 10 (5%)", "Group B: 12 (6%)"].
-#     """
-#     found_data = []
-#     try:
-#         # Find the <h2> tag that contains the exact table title
-#         header_tag = soup.find(['h2','h3','h4'], string=lambda t: t and table_title.strip().lower() in t.strip().lower())
-        
-#         if not header_tag:
-#             return None # Table title not found on the page
-
-#         # Find the <table> element that immediately follows the header
-#         table = header_tag.find_next('table')
-#         if not table:
-#             return None # No table found after the header
-
-#         # --- Table Parsing Logic ---
-#         headers = [th.get_text(strip=True) for th in table.find('thead').find_all('th')]
-#         # We are interested in the Arm/Group titles, which start from the second column
-#         group_titles = headers[1:] 
-        
-#         # Find the row that contains the data (e.g., "Count of Participants")
-#         data_row = None
-#         for tr in table.find('tbody').find_all('tr'):
-#             # The data we want is often in a row with a `th` scope="row" tag
-#             row_header = tr.find('th', {'scope': 'row'})
-#             if row_header and "Count of Participants" in row_header.get_text():
-#                 data_row = tr
-#                 break
-        
-#         if not data_row:
-#             return None # Could not find the specific data row
-
-#         # Extract the numerical values from the data cells (td)
-#         values = [td.get_text(strip=True) for td in data_row.find_all('td')]
-
-#         # Combine the group titles with their corresponding values
-#         for i, title in enumerate(group_titles):
-#             if i < len(values):
-#                 # Replace newline characters inside the value for cleaner output
-#                 cleaned_value = values[i].replace('\n', ' ')
-#                 found_data.append(f"{title}: {cleaned_value}")
-
-#         return found_data
-
-#     except Exception as e:
-#         # This will catch errors during parsing (e.g., if a table has an unexpected structure)
-#         print(f"Error parsing table '{table_title}': {e}")
-#         return None
-
-def extract_ct_gov_outcome_from_api(nct_id, user_outcome_of_interest):
-    """
-    Fetches a full study record from the CT.gov API and extracts the numerical data
-    for a specific outcome measure using robust JSON parsing.
-    """
-    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}
-        response = requests.get(api_url, headers=headers, timeout=20)
-        response.raise_for_status()
-        data = response.json()
-
-        results_section = data.get('resultsSection', {})
-        if not results_section:
-            return ["N/A (No Results Section)"], "No results section found in API data."
-
-        outcome_measures_module = results_section.get('outcomeMeasuresModule', {})
-        outcome_measures = outcome_measures_module.get('outcomeMeasures', [])
-        target_outcome = None
-        for measure in outcome_measures:
-            if user_outcome_of_interest.lower() in measure.get('title', '').lower():
-                target_outcome = measure
-                break
-        
-        if not target_outcome:
-            return ["N/A (Outcome not found)"], "Specified outcome not found in results."
-
-        all_groups = outcome_measures_module.get('groups', [])
-        group_id_map = {g['id']: g['title'] for g in all_groups if 'id' in g and 'title' in g}
-
-        findings = []
-        analyses = target_outcome.get('analyses', [])
-        for analysis in analyses:
-            group_ids_in_analysis = analysis.get('groupIds', [])
-            for result in analysis.get('results', []):
-                if result.get('measureType') == 'COUNT_OF_PARTICIPANTS':
-                    for count_data in result.get('counts', []):
-                        gid = count_data.get('groupId')
-                        if gid in group_ids_in_analysis:
-                            title = group_id_map.get(gid, gid)
-                            count = count_data.get('count', 'N/A')
-                            percent = count_data.get('percent')
-                            if percent is not None:
-                                findings.append(f"{title}: {count} ({percent}%)")
-                            else:
-                                findings.append(f"{title}: {count}")
-        
-        if not findings:
-            return ["N/A (Count data not found)"], "Found outcome, but no count data."
-
-        return findings, "Extraction successful."
-
-    except requests.exceptions.RequestException as e:
-        return None, f"API request failed: {str(e)}"
-    except (ValueError, KeyError) as e:
-        return None, f"Failed to parse JSON or find key: {str(e)}"
 
 def get_ct_gov_table_titles_from_api(nct_id):
     """
@@ -371,13 +186,17 @@ def get_ct_gov_table_titles_from_api(nct_id):
         response.raise_for_status()
         data = response.json()
 
-        # study_data = data.get('study', {})
-        # results_section = study_data.get('resultsSection', {})
         results_section = data.get('resultsSection', {})
         if not results_section:
             return None, "No Results Section found in the API data for this trial."
 
         all_titles = []
+
+        # 1. Baseline Characteristics
+        baseline_module = results_section.get('baselineCharacteristicsModule', {})
+        for measure in baseline_module.get('measures', []):
+            if measure.get('title'):
+                all_titles.append(f"[Baseline] {measure['title']}")
 
         # 2. Outcome Measures
         outcome_module = results_section.get('outcomeMeasuresModule', {})
@@ -391,22 +210,14 @@ def get_ct_gov_table_titles_from_api(nct_id):
             if adverse_module.get('eventGroups'):
                 all_titles.append(f"[Adverse] All-Cause Mortality")
 
-            # Iterate through the seriousEvents list and extract each 'term' as a title
             for event in adverse_module.get('seriousEvents', []):
                 if event.get('term'):
                     all_titles.append(f"[Adverse-Serious] {event['term']}")
 
-            # Iterate through the otherEvents list and extract each 'term' as a title
             for event in adverse_module.get('otherEvents', []):
                 if event.get('term'):
                     all_titles.append(f"[Adverse-Other] {event['term']}")
                     
-        # 1. Baseline Characteristics
-        baseline_module = results_section.get('baselineCharacteristicsModule', {})
-        for measure in baseline_module.get('measures', []):
-            if measure.get('title'):
-                all_titles.append(f"[Baseline] {measure['title']}")
-        
         if not all_titles:
             return [], "Results section was found, but it contains no data tables."
 
@@ -419,11 +230,7 @@ def get_ct_gov_table_titles_from_api(nct_id):
 
 def extract_data_for_selected_titles(nct_id, selected_titles):
     """
-    Fetches API data and extracts values.
-    Strictly follows the JSON structure:
-    - Baseline: Uses baselineCharacteristicsModule/groups
-    - Outcome: Uses outcomeMeasuresModule/outcomeMeasures/groups
-    - Adverse: Uses adverseEventsModule/eventGroups
+    Fetches API data and extracts values for the specific titles identified by the LLM.
     """
     api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
     try:
@@ -447,15 +254,12 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
             # --- CASE 1: BASELINE CHARACTERISTICS ---
             if tag == "[Baseline]":
                 module = results.get('baselineCharacteristicsModule', {})
-                # 1. Get the groups specific to Baseline
                 groups = module.get('groups', [])
                 group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
                 
-                # 2. Find the measure
                 measure = next((m for m in module.get('measures', []) if m.get('title') == clean_title), None)
                 
                 if measure:
-                    # 3. Extract data (classes -> categories -> measurements)
                     for cls in measure.get('classes', []):
                         for cat in cls.get('categories', []):
                             for meas in cat.get('measurements', []):
@@ -469,21 +273,17 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
             # --- CASE 2: OUTCOME MEASURES ---
             elif tag == "[Outcome]":
                 module = results.get('outcomeMeasuresModule', {})
-                # 1. Find the specific outcome measure first
                 measure = next((m for m in module.get('outcomeMeasures', []) if m.get('title') == clean_title), None)
                 
                 if measure:
-                    # 2. Get the groups specific to THIS Outcome Measure
                     groups = measure.get('groups', [])
                     group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
 
-                    # 3. Extract data (classes -> categories -> measurements)
                     for cls in measure.get('classes', []):
                         for cat in cls.get('categories', []):
                             for meas in cat.get('measurements', []):
                                 gid = meas.get('groupId')
                                 val = meas.get('value', 'N/A')
-                                # Add confidence intervals or spread if available
                                 if meas.get('spread'): 
                                     val += f" ({meas['spread']})"
                                 elif meas.get('lowerLimit') and meas.get('upperLimit'):
@@ -495,12 +295,10 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
             # --- CASE 3: ADVERSE EVENTS ---
             elif tag.startswith("[Adverse"):
                 module = results.get('adverseEventsModule', {})
-                # 1. Get the groups specific to Adverse Events
                 groups = module.get('eventGroups', [])
                 group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
 
                 if "All-Cause Mortality" in clean_title:
-                    # Sub-case: Mortality (Data is directly in eventGroups)
                     for g in groups:
                         gid = g.get('id')
                         count = g.get('deathsNumAffected')
@@ -510,12 +308,11 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
                             findings.append(f"{group_map.get(gid, gid)}: {val}")
                 
                 else:
-                    # Sub-case: Serious or Other Events (Data is in stats list)
                     event_list = module.get('seriousEvents', []) + module.get('otherEvents', [])
-                    event = next((e for e in event_list if e.get('term') == clean_title), None)
+                    target_event = next((e for e in event_list if e.get('term') == clean_title), None)
                     
-                    if event:
-                        for stat in event.get('stats', []):
+                    if target_event:
+                        for stat in target_event.get('stats', []):
                             gid = stat.get('groupId')
                             count = stat.get('numAffected')
                             at_risk = stat.get('numAtRisk')
@@ -524,7 +321,6 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
                                 group_name = group_map.get(gid, gid)
                                 findings.append(f"{group_name}: {val}")
 
-            # Format the result
             if findings:
                 extracted_results[full_title] = " | ".join(findings)
             else:
@@ -535,50 +331,62 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
     except Exception as e:
         return None, f"API Error: {e}"
 
-def _table_to_markdown(table_div):
+# --- 3. Main Controller (Updated) ---
+
+def chunk_text(sections_data, chunk_size=1500, chunk_overlap=200):
+    """Splits text from sections into chunks, each with metadata."""
+    if not sections_data: return []
+    all_chunks = []
+    for section_title, section_text in sections_data:
+        if not section_text.strip(): continue
+        current_chunk = ""
+        paragraphs = section_text.split('\n\n')
+        for para in paragraphs:
+            if not para.strip(): continue
+            if len(current_chunk) + len(para) + 2 <= chunk_size:
+                current_chunk += para + "\n\n"
+            else:
+                if current_chunk: all_chunks.append({"text": current_chunk.strip(), "section": section_title})
+                current_chunk = para + "\n\n"
+        if current_chunk.strip(): all_chunks.append({"text": current_chunk.strip(), "section": section_title})
+    return all_chunks
+
+def process_single_link(url):
     """
-    Converts a PMC HTML table wrapper into a Markdown-formatted string.
+    Main controller. Uses API for both PMC and CT.gov.
     """
-    output = []
+    print(f"Processing link: {url}")
+    sections_data = []
+    status = ""
     
-    # 1. Get the Caption/Label (Try multiple selectors)
-    label = table_div.find('span', class_='label') or table_div.find('strong')
-    caption = table_div.find('div', class_='caption') or table_div.find('p', class_='caption')
-    
-    title_text = ""
-    if label: title_text += label.get_text(strip=True) + " "
-    if caption: title_text += caption.get_text(strip=True)
-    
-    if title_text:
-        output.append(f"\n**Table: {title_text}**\n")
+    # --- PMC Logic (Updated to use API) ---
+    if "ncbi.nlm.nih.gov/pmc/articles" in url or "pmc.ncbi.nlm.nih.gov" in url:
+        # Extract PMC ID (e.g., PMC12345678)
+        pmc_match = re.search(r'(PMC\d+)', url)
+        if pmc_match:
+            pmc_id = pmc_match.group(1)
+            xml_content = fetch_pmc_xml(pmc_id)
+            if not xml_content:
+                return None, f"Failed to fetch XML from API for {pmc_id}"
+            sections_data, status = parse_pmc_xml(xml_content)
+        else:
+            return None, "Could not extract PMC ID from URL."
 
-    # 2. Parse the Table Body
-    table = table_div.find('table')
-    if not table:
-        return ""
-
-    # Handle headers
-    thead = table.find('thead')
-    if thead:
-        rows = thead.find_all('tr')
-        for row in rows:
-            cells = row.find_all(['th', 'td'])
-            row_text = " | ".join(cell.get_text(strip=True) for cell in cells)
-            output.append(f"| {row_text} |")
-        # Add separator line
-        if rows:
-            output.append("|---" * len(rows[0].find_all(['th', 'td'])) + "|")
-
-    # Handle body rows
-    tbody = table.find('tbody')
-    if tbody:
-        rows = tbody.find_all('tr')
+    # --- ClinicalTrials.gov Logic (Unchanged) ---
+    elif "clinicaltrials.gov/study" in url:
+        nct_match = re.search(r'NCT\d+', url)
+        if not nct_match: return None, "Could not extract NCT ID."
+        sections_data, status = parse_clinical_trial_record(nct_match.group(0))
+        
     else:
-        rows = table.find_all('tr') # Fallback if no tbody
+        return None, "Unrecognized URL."
 
-    for row in rows:
-        cells = row.find_all(['th', 'td'])
-        row_text = " | ".join(cell.get_text(strip=True) for cell in cells)
-        output.append(f"| {row_text} |")
+    if not sections_data:
+        return None, status
+
+    text_chunks_with_metadata = chunk_text(sections_data)
     
-    return "\n".join(output) + "\n\n"
+    # Reconstruct full text for display
+    full_text_for_display = "\n\n".join([f"## {title}\n\n{text}" for title, text in sections_data])
+    
+    return full_text_for_display, text_chunks_with_metadata
