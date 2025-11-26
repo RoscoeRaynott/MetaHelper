@@ -6,14 +6,13 @@ import re
 
 def fetch_content_from_url(url):
     """
-    Fetches the raw HTML content from a given URL.
-    Returns (content, error_message).
+    Fetches the raw HTML content from a given URL with robust error handling.
     """
     try:
-        # Robust headers to mimic a real browser and avoid 403 Forbidden
+        # More complete headers to mimic a real browser
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
             'Accept-Encoding': 'gzip, deflate, br',
             'Connection': 'keep-alive',
@@ -21,14 +20,57 @@ def fetch_content_from_url(url):
             'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
             'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
             'Cache-Control': 'max-age=0',
         }
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        return response.text, None
+        
+        # Add a small delay to be respectful to servers
+        time.sleep(1)
+        
+        response = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+        
+        # Debug: Show what status code we got
+        st.info(f"HTTP Status Code: {response.status_code}")
+        
+        # Check for specific error codes
+        if response.status_code == 403:
+            st.error(f"🚫 403 Forbidden: The server is blocking automated requests to {url}")
+            st.warning("Try one of these solutions:")
+            st.write("1. Use the PMC API instead of web scraping")
+            st.write("2. Download the article manually and upload the PDF")
+            st.write("3. Use PMC's FTP server for bulk downloads")
+            return None
+        elif response.status_code == 404:
+            st.error(f"🔍 404 Not Found: The URL {url} does not exist")
+            return None
+        elif response.status_code != 200:
+            st.error(f"⚠️ HTTP {response.status_code}: Unexpected response from server")
+            return None
+        
+        # Check if we actually got HTML content
+        content_type = response.headers.get('Content-Type', '')
+        if 'text/html' not in content_type:
+            st.warning(f"⚠️ Response is not HTML (Content-Type: {content_type})")
+        
+        return response.text
+        
+    except requests.exceptions.Timeout:
+        st.error(f"⏱️ Timeout: The server took too long to respond. URL: {url}")
+        return None
+    except requests.exceptions.ConnectionError:
+        st.error(f"🌐 Connection Error: Could not connect to {url}. Check your internet connection.")
+        return None
+    except requests.exceptions.TooManyRedirects:
+        st.error(f"🔄 Too Many Redirects: The URL {url} redirected too many times.")
+        return None
     except requests.exceptions.RequestException as e:
-        return None, str(e)
+        st.error(f"❌ Request failed for {url}")
+        st.error(f"Error details: {str(e)}")
+        return None
+    except Exception as e:
+        st.error(f"💥 Unexpected error while fetching {url}")
+        st.error(f"Error type: {type(e).__name__}")
+        st.error(f"Error message: {str(e)}")
+        return None
 
 def parse_pmc_article(html_content):
     """
