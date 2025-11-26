@@ -8,23 +8,24 @@ import pandas as pd
 
 def clean_json_output(text):
     """
-    Cleans LLM output to ensure it is valid JSON.
-    Removes Markdown code blocks (```json ... ```) and whitespace.
+    Robustly extracts JSON from LLM output by finding the first '{' and last '}'.
+    Handles Markdown blocks and conversational filler.
     """
     text = text.strip()
-    # Remove markdown code blocks if present
-    # Find content between ```json and ``` or ``` and ```
-    import re
-    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-    if json_match:
-        return json_match.group(1).strip()
     
-    # If no markdown blocks, look for first { to last }
-    brace_match = re.search(r'\{.*\}', text, re.DOTALL)
-    if brace_match:
-        return brace_match.group(0).strip()
-    
-    return text.strip()
+    # 1. Find the start of the JSON object
+    start_index = text.find('{')
+    if start_index == -1:
+        return text # No JSON object found, return original text (will likely fail parsing)
+        
+    # 2. Find the end of the JSON object
+    end_index = text.rfind('}')
+    if end_index == -1:
+        return text # Incomplete JSON
+        
+    # 3. Extract just the JSON part
+    # Add 1 to end_index to include the closing brace
+    return text[start_index : end_index + 1]
     
 @st.cache_resource
 def get_llm():
