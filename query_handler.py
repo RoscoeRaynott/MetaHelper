@@ -339,10 +339,13 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     context_string_for_extractor = "\n\n---\n\n".join([doc.page_content for doc in context_chunks_for_extractor])
 
     extractor_prompt = f"""
-    Based ONLY on the context below, find and list ALL reported numerical values for the specific outcome: "{exact_metric_name}".
+    Based ONLY on the context below, extract the outcome "{exact_metric_name}" with its GROUP/ARM labels.
+
     Context: {context_string_for_extractor}
-    Extract the full value string, including numbers, units, and confidence intervals (e.g., "5.2 ± 0.8 kg", "10% reduction").
-    Respond in JSON with a key "findings", which is a list of strings. If no values are found, return an empty list.
+
+    Format each finding as "GroupName: value" (e.g., "Placebo: 5.2 mg/dL", "Treatment: 6.1 mg/dL").
+    Respond in JSON: {{"findings": ["Group A: value", "Group B: value"]}}
+    If no values found, return empty list.
     """
 
     try:
@@ -390,6 +393,11 @@ def generate_outcome_table(outcome_of_interest):
 
     for i, source_url in enumerate(unique_sources):
         progress_bar.progress((i + 1) / len(unique_sources), text=f"Extracting from: {source_url}")
+
+        # --- NEW: Filter out ClinicalTrials.gov links ---
+        if "clinicaltrials.gov" in source_url:
+            continue
+        # --- END NEW ---
         
         findings, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
