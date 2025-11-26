@@ -5,15 +5,30 @@ from bs4 import BeautifulSoup
 import re
 
 def fetch_content_from_url(url):
-    """Fetches the raw HTML content from a given URL."""
+    """
+    Fetches the raw HTML content from a given URL.
+    Returns (content, error_message).
+    """
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=15)
+        # Robust headers to mimic a real browser and avoid 403 Forbidden
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+        }
+        response = requests.get(url, headers=headers, timeout=30)
         response.raise_for_status()
-        return response.text
+        return response.text, None
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching URL {url}: {e}")
-        return None
+        return None, str(e)
 
 def parse_pmc_article(html_content):
     """
@@ -166,11 +181,17 @@ def process_single_link(url):
     """
     sections_data = []
     status = ""
-    if "ncbi.nlm.nih.gov/pmc/articles" in url:
-        html_content = fetch_content_from_url(url)
-        if not html_content: return None, "Failed to fetch content."
+    # --- FIX: Handle both old and new PMC URL formats ---
+    is_pmc = "ncbi.nlm.nih.gov/pmc/articles" in url or "pmc.ncbi.nlm.nih.gov" in url
+    is_ct_gov = "clinicaltrials.gov/study" in url
+
+    if is_pmc:
+        html_content, error_msg = fetch_content_from_url(url)
+        if not html_content: 
+            return None, f"Failed to fetch content: {error_msg}"
         sections_data, status = parse_pmc_article(html_content)
-    elif "clinicaltrials.gov/study" in url:
+        
+    elif is_ct_gov:
         nct_match = re.search(r'NCT\d+', url)
         if not nct_match: return None, "Could not extract NCT ID."
         sections_data, status = parse_clinical_trial_record(nct_match.group(0))
