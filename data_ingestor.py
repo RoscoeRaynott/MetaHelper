@@ -17,7 +17,8 @@ def fetch_content_from_url(url):
 
 def parse_pmc_article(html_content):
     """
-    Parses HTML from a PubMed Central article using a robust, header-based approach.
+    Parses HTML from a PubMed Central article.
+    Extracts Title, Abstract, Body Text, AND Tables.
     Returns a list of (section_title, section_text) tuples.
     """
     if not html_content:
@@ -26,7 +27,7 @@ def parse_pmc_article(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
     sections_data = []
 
-    # --- Title and Abstract (same as before, this part is reliable) ---
+    # --- Title and Abstract ---
     title_tag = (soup.find('h1', class_='content-title') or soup.find('h1') or soup.find('title'))
     title = title_tag.get_text(strip=True) if title_tag else "No Title Found"
     sections_data.append(("Title", title))
@@ -35,41 +36,48 @@ def parse_pmc_article(html_content):
     if abstract_div:
         sections_data.append(("Abstract", abstract_div.get_text(separator='\n\n', strip=True)))
 
-    # --- NEW, MORE ROBUST BODY PARSING ---
+    # --- Body Parsing (Text + Tables) ---
     body_div = (soup.find('div', class_='jig-ncbiinpagenav') or 
                 soup.find('div', class_=re.compile('article.*', re.I)) or 
                 soup.find('article'))
     
     if body_div:
-        current_section_title = "Introduction" # Assume first section is intro if no header found
+        current_section_title = "Introduction"
         current_section_text = ""
         
-        # Find all header and paragraph tags in the order they appear
-        for element in body_div.find_all(['h2', 'h3', 'p']):
-            # If we find a new header, save the previous section and start a new one
+        # Iterate through Headers, Paragraphs, AND Table Wrappers
+        # Updated to include 'tbl-box' based on your finding
+        for element in body_div.find_all(['h2', 'h3', 'p', 'div']):
+            
+            # Case 1: New Section Header
             if element.name in ['h2', 'h3']:
-                # Save the completed section if it has content
                 if current_section_text.strip():
                     sections_data.append((current_section_title, current_section_text.strip()))
                 
-                # Start the new section
                 current_section_title = element.get_text(strip=True)
-                # Normalize common section titles
                 if "method" in current_section_title.lower(): current_section_title = "Methods"
                 elif "result" in current_section_title.lower(): current_section_title = "Results"
                 elif "discussion" in current_section_title.lower() or "conclusion" in current_section_title.lower(): current_section_title = "Conclusion"
                 
-                current_section_text = "" # Reset the text buffer
+                current_section_text = ""
             
-            # If we find a paragraph, add its text to the current section
+            # Case 2: Paragraph Text
             elif element.name == 'p':
                 current_section_text += element.get_text(strip=True) + "\n\n"
-        
-        # After the loop, save the last remaining section
+
+            # Case 3: Table (Updated Logic)
+            elif element.name == 'div':
+                classes = element.get('class', [])
+                # Check for standard PMC 'table-wrap' OR the specific 'tbl-box' you found
+                if 'table-wrap' in classes or 'tbl-box' in classes:
+                    table_markdown = _table_to_markdown(element)
+                    current_section_text += table_markdown
+
         if current_section_text.strip():
             sections_data.append((current_section_title, current_section_text.strip()))
 
     return sections_data, "Success" if len(sections_data) > 2 else "Warning: Only title and abstract were parsed."
+    
 def parse_clinical_trial_record(nct_id):
     """
     Fetches and parses a ClinicalTrials.gov study and returns a list of (section, text) tuples.
