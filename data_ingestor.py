@@ -469,3 +469,51 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
 
     except Exception as e:
         return None, f"API Error: {e}"
+
+def _table_to_markdown(table_div):
+    """
+    Converts a PMC HTML table wrapper into a Markdown-formatted string.
+    """
+    output = []
+    
+    # 1. Get the Caption/Label (Try multiple selectors)
+    label = table_div.find('span', class_='label') or table_div.find('strong')
+    caption = table_div.find('div', class_='caption') or table_div.find('p', class_='caption')
+    
+    title_text = ""
+    if label: title_text += label.get_text(strip=True) + " "
+    if caption: title_text += caption.get_text(strip=True)
+    
+    if title_text:
+        output.append(f"\n**Table: {title_text}**\n")
+
+    # 2. Parse the Table Body
+    table = table_div.find('table')
+    if not table:
+        return ""
+
+    # Handle headers
+    thead = table.find('thead')
+    if thead:
+        rows = thead.find_all('tr')
+        for row in rows:
+            cells = row.find_all(['th', 'td'])
+            row_text = " | ".join(cell.get_text(strip=True) for cell in cells)
+            output.append(f"| {row_text} |")
+        # Add separator line
+        if rows:
+            output.append("|---" * len(rows[0].find_all(['th', 'td'])) + "|")
+
+    # Handle body rows
+    tbody = table.find('tbody')
+    if tbody:
+        rows = tbody.find_all('tr')
+    else:
+        rows = table.find_all('tr') # Fallback if no tbody
+
+    for row in rows:
+        cells = row.find_all(['th', 'td'])
+        row_text = " | ".join(cell.get_text(strip=True) for cell in cells)
+        output.append(f"| {row_text} |")
+    
+    return "\n".join(output) + "\n\n"
