@@ -13,14 +13,17 @@ def clean_json_output(text):
     """
     text = text.strip()
     # Remove markdown code blocks if present
-    if text.startswith("```"):
-        # Find the first newline to skip "```json"
-        first_newline = text.find("\n")
-        if first_newline != -1:
-            text = text[first_newline:]
-        # Remove the trailing "```"
-        if text.endswith("```"):
-            text = text[:-3]
+    # Find content between ```json and ``` or ``` and ```
+    import re
+    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if json_match:
+        return json_match.group(1).strip()
+    
+    # If no markdown blocks, look for first { to last }
+    brace_match = re.search(r'\{.*\}', text, re.DOTALL)
+    if brace_match:
+        return brace_match.group(0).strip()
+    
     return text.strip()
     
 @st.cache_resource
