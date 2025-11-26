@@ -176,3 +176,288 @@ def process_single_link(url):
     full_text_for_display = "\n\n".join([f"## {title}\n\n{text}" for title, text in sections_data])
     
     return full_text_for_display, text_chunks_with_metadata
+
+# def parse_outcome_table(soup, table_title):
+#     """
+#     Finds a specific table by its preceding h2 title and parses it.
+#     Returns a list of formatted strings, e.g., ["Group A: 10 (5%)", "Group B: 12 (6%)"].
+#     """
+#     found_data = []
+#     try:
+#         # Find the <h2> tag that contains the exact table title
+#         header_tag = soup.find(['h2','h3','h4'], string=lambda t: t and table_title.strip().lower() in t.strip().lower())
+        
+#         if not header_tag:
+#             return None # Table title not found on the page
+
+#         # Find the <table> element that immediately follows the header
+#         table = header_tag.find_next('table')
+#         if not table:
+#             return None # No table found after the header
+
+#         # --- Table Parsing Logic ---
+#         headers = [th.get_text(strip=True) for th in table.find('thead').find_all('th')]
+#         # We are interested in the Arm/Group titles, which start from the second column
+#         group_titles = headers[1:] 
+        
+#         # Find the row that contains the data (e.g., "Count of Participants")
+#         data_row = None
+#         for tr in table.find('tbody').find_all('tr'):
+#             # The data we want is often in a row with a `th` scope="row" tag
+#             row_header = tr.find('th', {'scope': 'row'})
+#             if row_header and "Count of Participants" in row_header.get_text():
+#                 data_row = tr
+#                 break
+        
+#         if not data_row:
+#             return None # Could not find the specific data row
+
+#         # Extract the numerical values from the data cells (td)
+#         values = [td.get_text(strip=True) for td in data_row.find_all('td')]
+
+#         # Combine the group titles with their corresponding values
+#         for i, title in enumerate(group_titles):
+#             if i < len(values):
+#                 # Replace newline characters inside the value for cleaner output
+#                 cleaned_value = values[i].replace('\n', ' ')
+#                 found_data.append(f"{title}: {cleaned_value}")
+
+#         return found_data
+
+#     except Exception as e:
+#         # This will catch errors during parsing (e.g., if a table has an unexpected structure)
+#         print(f"Error parsing table '{table_title}': {e}")
+#         return None
+
+def extract_ct_gov_outcome_from_api(nct_id, user_outcome_of_interest):
+    """
+    Fetches a full study record from the CT.gov API and extracts the numerical data
+    for a specific outcome measure using robust JSON parsing.
+    """
+    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}
+        response = requests.get(api_url, headers=headers, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+
+        results_section = data.get('resultsSection', {})
+        if not results_section:
+            return ["N/A (No Results Section)"], "No results section found in API data."
+
+        outcome_measures_module = results_section.get('outcomeMeasuresModule', {})
+        outcome_measures = outcome_measures_module.get('outcomeMeasures', [])
+        target_outcome = None
+        for measure in outcome_measures:
+            if user_outcome_of_interest.lower() in measure.get('title', '').lower():
+                target_outcome = measure
+                break
+        
+        if not target_outcome:
+            return ["N/A (Outcome not found)"], "Specified outcome not found in results."
+
+        all_groups = outcome_measures_module.get('groups', [])
+        group_id_map = {g['id']: g['title'] for g in all_groups if 'id' in g and 'title' in g}
+
+        findings = []
+        analyses = target_outcome.get('analyses', [])
+        for analysis in analyses:
+            group_ids_in_analysis = analysis.get('groupIds', [])
+            for result in analysis.get('results', []):
+                if result.get('measureType') == 'COUNT_OF_PARTICIPANTS':
+                    for count_data in result.get('counts', []):
+                        gid = count_data.get('groupId')
+                        if gid in group_ids_in_analysis:
+                            title = group_id_map.get(gid, gid)
+                            count = count_data.get('count', 'N/A')
+                            percent = count_data.get('percent')
+                            if percent is not None:
+                                findings.append(f"{title}: {count} ({percent}%)")
+                            else:
+                                findings.append(f"{title}: {count}")
+        
+        if not findings:
+            return ["N/A (Count data not found)"], "Found outcome, but no count data."
+
+        return findings, "Extraction successful."
+
+    except requests.exceptions.RequestException as e:
+        return None, f"API request failed: {str(e)}"
+    except (ValueError, KeyError) as e:
+        return None, f"Failed to parse JSON or find key: {str(e)}"
+
+def get_ct_gov_table_titles_from_api(nct_id):
+    """
+    Fetches a full study record from the CT.gov API and returns a list of all
+    table titles from the Baseline, Outcome, and Adverse Event sections.
+    """
+    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124'}
+        response = requests.get(api_url, headers=headers, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+
+        # study_data = data.get('study', {})
+        # results_section = study_data.get('resultsSection', {})
+        results_section = data.get('resultsSection', {})
+        if not results_section:
+            return None, "No Results Section found in the API data for this trial."
+
+        all_titles = []
+
+        # 2. Outcome Measures
+        outcome_module = results_section.get('outcomeMeasuresModule', {})
+        for measure in outcome_module.get('outcomeMeasures', []):
+            if measure.get('title'):
+                all_titles.append(f"[Outcome] {measure['title']}")
+            
+        # 3. Adverse Events
+        adverse_module = results_section.get('adverseEventsModule', {})
+        if adverse_module:
+            if adverse_module.get('eventGroups'):
+                all_titles.append(f"[Adverse] All-Cause Mortality")
+
+            # Iterate through the seriousEvents list and extract each 'term' as a title
+            for event in adverse_module.get('seriousEvents', []):
+                if event.get('term'):
+                    all_titles.append(f"[Adverse-Serious] {event['term']}")
+
+            # Iterate through the otherEvents list and extract each 'term' as a title
+            for event in adverse_module.get('otherEvents', []):
+                if event.get('term'):
+                    all_titles.append(f"[Adverse-Other] {event['term']}")
+                    
+        # 1. Baseline Characteristics
+        baseline_module = results_section.get('baselineCharacteristicsModule', {})
+        for measure in baseline_module.get('measures', []):
+            if measure.get('title'):
+                all_titles.append(f"[Baseline] {measure['title']}")
+        
+        if not all_titles:
+            return [], "Results section was found, but it contains no data tables."
+
+        return all_titles, "Successfully retrieved all table titles."
+
+    except requests.exceptions.RequestException as e:
+        return None, f"API request failed: {str(e)}"
+    except (ValueError, KeyError) as e:
+        return None, f"Failed to parse JSON or find a key: {str(e)}"
+
+def extract_data_for_selected_titles(nct_id, selected_titles):
+    """
+    Fetches API data and extracts values.
+    Strictly follows the JSON structure:
+    - Baseline: Uses baselineCharacteristicsModule/groups
+    - Outcome: Uses outcomeMeasuresModule/outcomeMeasures/groups
+    - Adverse: Uses adverseEventsModule/eventGroups
+    """
+    api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(api_url, headers=headers, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+        
+        results = data.get('resultsSection', {})
+        if not results: return None, "No results section."
+
+        extracted_results = {}
+
+        for full_title in selected_titles:
+            if "] " not in full_title: continue
+            tag, clean_title = full_title.split("] ", 1)
+            tag = tag + "]"
+            
+            findings = []
+
+            # --- CASE 1: BASELINE CHARACTERISTICS ---
+            if tag == "[Baseline]":
+                module = results.get('baselineCharacteristicsModule', {})
+                # 1. Get the groups specific to Baseline
+                groups = module.get('groups', [])
+                group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
+                
+                # 2. Find the measure
+                measure = next((m for m in module.get('measures', []) if m.get('title') == clean_title), None)
+                
+                if measure:
+                    # 3. Extract data (classes -> categories -> measurements)
+                    for cls in measure.get('classes', []):
+                        for cat in cls.get('categories', []):
+                            for meas in cat.get('measurements', []):
+                                gid = meas.get('groupId')
+                                val = meas.get('value', 'N/A')
+                                if meas.get('spread'): val += f" ({meas['spread']})"
+                                
+                                group_name = group_map.get(gid, gid)
+                                findings.append(f"{group_name}: {val}")
+
+            # --- CASE 2: OUTCOME MEASURES ---
+            elif tag == "[Outcome]":
+                module = results.get('outcomeMeasuresModule', {})
+                # 1. Find the specific outcome measure first
+                measure = next((m for m in module.get('outcomeMeasures', []) if m.get('title') == clean_title), None)
+                
+                if measure:
+                    # 2. Get the groups specific to THIS Outcome Measure
+                    groups = measure.get('groups', [])
+                    group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
+
+                    # 3. Extract data (classes -> categories -> measurements)
+                    for cls in measure.get('classes', []):
+                        for cat in cls.get('categories', []):
+                            for meas in cat.get('measurements', []):
+                                gid = meas.get('groupId')
+                                val = meas.get('value', 'N/A')
+                                # Add confidence intervals or spread if available
+                                if meas.get('spread'): 
+                                    val += f" ({meas['spread']})"
+                                elif meas.get('lowerLimit') and meas.get('upperLimit'):
+                                    val += f" ({meas['lowerLimit']} to {meas['upperLimit']})"
+                                
+                                group_name = group_map.get(gid, gid)
+                                findings.append(f"{group_name}: {val}")
+
+            # --- CASE 3: ADVERSE EVENTS ---
+            elif tag.startswith("[Adverse"):
+                module = results.get('adverseEventsModule', {})
+                # 1. Get the groups specific to Adverse Events
+                groups = module.get('eventGroups', [])
+                group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
+
+                if "All-Cause Mortality" in clean_title:
+                    # Sub-case: Mortality (Data is directly in eventGroups)
+                    for g in groups:
+                        gid = g.get('id')
+                        count = g.get('deathsNumAffected')
+                        at_risk = g.get('deathsNumAtRisk')
+                        if count is not None:
+                            val = f"{count}/{at_risk}" if at_risk else f"{count}"
+                            findings.append(f"{group_map.get(gid, gid)}: {val}")
+                
+                else:
+                    # Sub-case: Serious or Other Events (Data is in stats list)
+                    event_list = module.get('seriousEvents', []) + module.get('otherEvents', [])
+                    event = next((e for e in event_list if e.get('term') == clean_title), None)
+                    
+                    if event:
+                        for stat in event.get('stats', []):
+                            gid = stat.get('groupId')
+                            count = stat.get('numAffected')
+                            at_risk = stat.get('numAtRisk')
+                            if count is not None:
+                                val = f"{count}/{at_risk}" if at_risk else f"{count}"
+                                group_name = group_map.get(gid, gid)
+                                findings.append(f"{group_name}: {val}")
+
+            # Format the result
+            if findings:
+                extracted_results[full_title] = " | ".join(findings)
+            else:
+                extracted_results[full_title] = "Data not found"
+
+        return extracted_results, "Extraction complete."
+
+    except Exception as e:
+        return None, f"API Error: {e}"
