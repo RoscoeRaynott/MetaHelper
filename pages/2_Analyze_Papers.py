@@ -210,7 +210,10 @@ if vector_store:
             
             st.success(status)
             if extracted_df is not None:
-                st.dataframe(extracted_df)
+                st.dataframe(extracted_df,
+                    column_config={
+                        "Source Document": st.column_config.LinkColumn("Source Document")
+                    })
             else:
                 st.error("Could not generate the table.")
 else:
