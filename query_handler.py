@@ -6,6 +6,23 @@ from langchain_openai import ChatOpenAI
 #from langchain.chains.retrieval_qa.base import RetrievalQA
 import pandas as pd
 
+def clean_json_output(text):
+    """
+    Cleans LLM output to ensure it is valid JSON.
+    Removes Markdown code blocks (```json ... ```) and whitespace.
+    """
+    text = text.strip()
+    # Remove markdown code blocks if present
+    if text.startswith("```"):
+        # Find the first newline to skip "```json"
+        first_newline = text.find("\n")
+        if first_newline != -1:
+            text = text[first_newline:]
+        # Remove the trailing "```"
+        if text.endswith("```"):
+            text = text[:-3]
+    return text.strip()
+    
 @st.cache_resource
 def get_llm():
     """Initializes the LLM for question answering, configured for OpenRouter."""
@@ -256,19 +273,14 @@ def discover_and_normalize_metrics_from_library():
 def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     """
     Performs a targeted, two-step RAG query to extract all values for a specific outcome.
-    Step 1: Locate the exact metric name.
-    Step 2: Extract the values for that exact name.
+    Includes robust JSON cleaning and debugging.
     """
     vector_store = st.session_state.get('vector_store', None)
-    if not vector_store:
-        return None, "Vector Store not found in session."
-
+    if not vector_store: return None, "Vector Store not found in session."
     llm = get_llm()
-    if not llm:
-        return None, "LLM not initialized."
+    if not llm: return None, "LLM not initialized."
 
     # --- Step 1: The "Locator" Query ---
-    # Find the exact name of the outcome measure in the relevant sections.
     locator_retriever = vector_store.as_retriever(
         search_kwargs={'k': 5, 'filter': {
             "$and": [
@@ -290,19 +302,20 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     Respond in JSON with one key "exact_metric_name". If not found, return null.
     """
     
-    exact_metric_name = user_outcome_of_interest # Default to user's term
+    exact_metric_name = user_outcome_of_interest
     try:
         result = llm.invoke(locator_prompt)
-        answer_json = json.loads(result.content)
+        cleaned_content = clean_json_output(result.content) # Clean the output
+        answer_json = json.loads(cleaned_content)
         found_name = answer_json.get("exact_metric_name")
         if found_name:
             exact_metric_name = found_name
-            st.info(f"Locator found exact metric name: '{exact_metric_name}'")
+            # st.info(f"Locator found exact metric name: '{exact_metric_name}'") # Optional debug
     except Exception:
-        st.warning("Could not locate a more specific metric name, proceeding with user's term.")
+        # st.warning("Could not locate a more specific metric name, proceeding with user's term.")
+        pass
     
     # --- Step 2: The "Extractor" Query ---
-    # Now, search for the value of the *exact_metric_name* we just found.
     extractor_retriever = vector_store.as_retriever(
         search_kwargs={'k': 10, 'filter': {
             "$and": [
@@ -311,10 +324,11 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
             ]
         }}
     )
+
+    # Combine user term and found term for better retrieval
     extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
-    st.info(f"Extractor Query: '{extractor_query}'") # Add info for clarity
     context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
-    # context_chunks_for_extractor = extractor_retriever.invoke(exact_metric_name)
+    
     if not context_chunks_for_extractor:
         return ["N/A (No data found for this metric)"], "Extraction complete."
 
@@ -329,7 +343,12 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
 
     try:
         result = llm.invoke(extractor_prompt)
-        answer_json = json.loads(result.content)
+        
+        # --- DEBUGGING: Print raw output to see what's wrong ---
+        # st.write(f"DEBUG: Raw LLM Output for {source_url}:", result.content) 
+        
+        cleaned_content = clean_json_output(result.content)
+        answer_json = json.loads(cleaned_content)
         findings_list = answer_json.get('findings', [])
         
         if not findings_list:
@@ -338,11 +357,11 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         return findings_list, "Extraction successful."
         
     except (json.JSONDecodeError, KeyError, TypeError) as e:
-        st.error(f"Failed to parse LLM response during extraction: {e}")
+        st.error(f"Failed to parse LLM response: {e}")
+        st.write("Bad Output Content:", result.content) # Show the bad content
         return None, "Failed to parse LLM response."
     except Exception as e:
         return None, f"An error occurred during extraction: {e}"
-
 
 
 
