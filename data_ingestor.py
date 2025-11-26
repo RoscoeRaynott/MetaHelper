@@ -3,6 +3,8 @@
 import requests
 from bs4 import BeautifulSoup
 import re
+import time
+import streamlit as st
 
 def fetch_content_from_url(url):
     """
