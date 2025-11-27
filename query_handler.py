@@ -414,7 +414,7 @@ def generate_outcome_table(outcome_of_interest):
         return None, "Could not extract data from any documents."
 
     df = pd.DataFrame(table_data)
-    return df, "Table generation complete."
+    return df, unique_sources, "Table generation complete."
 
     # In query_handler.py, add this new function at the end of the file
 
