@@ -214,11 +214,21 @@ if vector_store:
         
         # Display table with refresh buttons (outside button click)
         if 'summary_table_df' in st.session_state:
+            # Add header row
+            header1, header2, header3 = st.columns([3, 6, 1])
+            with header1:
+                st.markdown("**Source Document**")
+            with header2:
+                st.markdown(f"**Outcome: {st.session_state['user_outcome']}**")
+            with header3:
+                st.markdown("**Refresh**")
+            
+            st.divider()
             for idx, row in st.session_state['summary_table_df'].iterrows():
                 col1, col2, col3 = st.columns([3, 6, 1])
                 
                 with col1:
-                    st.text(row['Source Document'])
+                    st.markdown(f"[Link]({row['Source Document']})")
                 with col2:
                     st.text(row[f"Outcome: {st.session_state['user_outcome']}"])
                 with col3:
