@@ -215,30 +215,35 @@ if vector_store:
         # Display table with refresh buttons (outside button click)
         if 'summary_table_df' in st.session_state:
             # Add header row
-            header1, header2, header3 = st.columns([3, 6, 1])
+            header1, header2, header3, header4 = st.columns([3, 2, 4, 1])
             with header1:
                 st.markdown("**Source Document**")
             with header2:
-                st.markdown(f"**Outcome: {st.session_state['user_outcome']}**")
+                st.markdown("**Metric Definition**")
             with header3:
+                st.markdown(f"**Outcome: {st.session_state['user_outcome']}**")
+            with header4:
                 st.markdown("**Refresh**")
             
             st.divider()
             for idx, row in st.session_state['summary_table_df'].iterrows():
-                col1, col2, col3 = st.columns([3, 6, 1])
+                col1, col2, col3, col4 = st.columns([3, 2, 4, 1])
                 
                 with col1:
                     st.markdown(f"[Link]({row['Source Document']})")
                 with col2:
-                    st.text(row[f"Outcome: {st.session_state['user_outcome']}"])
+                    st.text(row.get('Metric Definition', 'N/A'))
                 with col3:
+                    st.text(row[f"Outcome: {st.session_state['user_outcome']}"])
+                with col4:
                     if st.button("🔄", key=f"refresh_{idx}"):
                         with st.spinner("Refreshing..."):
                             from query_handler import extract_outcome_from_doc
                             source_url = st.session_state['summary_table_sources'][idx]
-                            new_findings, _, _ = extract_outcome_from_doc(source_url, st.session_state['user_outcome'])
+                            new_findings, new_definition, _ = extract_outcome_from_doc(source_url, st.session_state['user_outcome'])
                             new_value = " | ".join(new_findings) if new_findings else "N/A"
                             st.session_state['summary_table_df'].at[idx, f"Outcome: {st.session_state['user_outcome']}"] = new_value
+                            st.session_state['summary_table_df'].at[idx, 'Metric Definition'] = new_definition
                             st.rerun()
 else:
     st.info("You must add documents to the Knowledge Library before you can generate a table.")
