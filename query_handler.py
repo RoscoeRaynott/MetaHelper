@@ -406,14 +406,18 @@ def generate_outcome_table(outcome_of_interest):
             continue
         # --- END NEW ---
         
-        findings, status = extract_outcome_from_doc(source_url, outcome_of_interest)
+        # --- NEW: Unpack 3 values instead of 2 ---
+        findings, definition, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
         findings_str = " | ".join(findings) if findings else "N/A"
         
         table_data.append({
             "Source Document": source_url,
+            "Metric Definition": definition, # <--- Add the new column here
             f"Outcome: {outcome_of_interest}": findings_str
         })
+
+    
 
     progress_bar.empty()
     
