@@ -296,17 +296,22 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     
     locator_context_chunks = locator_retriever.invoke(user_outcome_of_interest)
     if not locator_context_chunks:
-        return ["N/A (No relevant sections found)"], "Extraction complete."
+        return ["N/A (No relevant sections found)"], "N/A", "Extraction complete."
         
     context_string_for_locator = "\n\n---\n\n".join([doc.page_content for doc in locator_context_chunks])
 
     locator_prompt = f"""
     Based ONLY on the context below, find the single, most relevant, full and exact name of the outcome measure related to "{user_outcome_of_interest}".
+    ALSO find the full definition or expansion of any acronyms in that name (e.g. if name is "FBG", definition is "Fasting Blood Glucose").
     Context: {context_string_for_locator}
-    Respond in JSON with one key "exact_metric_name". If not found, return null.
+    Respond in JSON with two keys: "exact_metric_name" and "metric_definition".
+    If the definition is not found, set "metric_definition" to "N/A".
+    If the metric is not found, return null.
+    
     """
     
     exact_metric_name = user_outcome_of_interest
+    metric_definition = "N/A" # Default value
     try:
         result = llm.invoke(locator_prompt)
         cleaned_content = clean_json_output(result.content) # Clean the output
@@ -315,6 +320,8 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         if found_name:
             exact_metric_name = found_name
             # st.info(f"Locator found exact metric name: '{exact_metric_name}'") # Optional debug
+        # Capture the definition
+        metric_definition = answer_json.get("metric_definition", "N/A")
     except Exception:
         # st.warning("Could not locate a more specific metric name, proceeding with user's term.")
         pass
@@ -334,7 +341,7 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
     
     if not context_chunks_for_extractor:
-        return ["N/A (No data found for this metric)"], "Extraction complete."
+        return ["N/A (No data found for this metric)"], metric_definition, "Extraction complete."
 
     context_string_for_extractor = "\n\n---\n\n".join([doc.page_content for doc in context_chunks_for_extractor])
 
@@ -359,9 +366,9 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         findings_list = answer_json.get('findings', [])
         
         if not findings_list:
-            return ["N/A (Value not found in text)"], "Extraction complete."
+            return ["N/A (Value not found in text)"], metric_definition, "Extraction complete."
             
-        return findings_list, "Extraction successful."
+        return findings_list, metric_definition, "Extraction successful."
         
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         st.error(f"Failed to parse LLM response: {e}")
