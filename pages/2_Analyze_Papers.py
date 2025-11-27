@@ -236,7 +236,7 @@ if vector_store:
                         with st.spinner("Refreshing..."):
                             from query_handler import extract_outcome_from_doc
                             source_url = st.session_state['summary_table_sources'][idx]
-                            new_findings, _ = extract_outcome_from_doc(source_url, st.session_state['user_outcome'])
+                            new_findings, _, _ = extract_outcome_from_doc(source_url, st.session_state['user_outcome'])
                             new_value = " | ".join(new_findings) if new_findings else "N/A"
                             st.session_state['summary_table_df'].at[idx, f"Outcome: {st.session_state['user_outcome']}"] = new_value
                             st.rerun()
