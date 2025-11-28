@@ -362,7 +362,10 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
 
     try:
         result = llm.invoke(extractor_prompt)
-        
+        # --- DEBUG INSERT ---
+        st.warning(f"DEBUG RAW OUTPUT for {source_url}:")
+        st.text(result.content)
+        # --------------------
         cleaned_content = clean_json_output(result.content)
         answer_json = json.loads(cleaned_content)
         findings_list = answer_json.get('findings', [])
