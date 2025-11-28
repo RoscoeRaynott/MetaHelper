@@ -350,20 +350,27 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
 
     Context: {context_string_for_extractor}
 
-    Format each finding as "GroupName: value" (e.g., "Placebo: 5.2 mg/dL", "Treatment: 6.1 mg/dL").
-    Respond in JSON: {{"findings": ["Group A: value", "Group B: value"]}}
-    If no values found, return empty list.
+     1. Format each finding as "GroupName: value" (e.g., "Placebo (BT): 5.2 mg/dL").
+    2. Identify and define any acronyms used in the Group Names or Timepoints (e.g., "BT = Before Treatment").
+
+    Respond in JSON with two keys:
+    - "findings": a list of strings.
+    - "definitions": a single string containing definitions for any acronyms found in the groups. If none, return "".
+
+    Example: {{"findings": ["Control (BT): 100", "Control (AT): 90"], "definitions": "BT=Before Treatment, AT=After Treatment"}}
     """
 
     try:
         result = llm.invoke(extractor_prompt)
         
-        # --- DEBUGGING: Print raw output to see what's wrong ---
-        # st.write(f"DEBUG: Raw LLM Output for {source_url}:", result.content) 
-        
         cleaned_content = clean_json_output(result.content)
         answer_json = json.loads(cleaned_content)
         findings_list = answer_json.get('findings', [])
+        group_definitions = answer_json.get('definitions', "")
+        
+        # Combine the outcome definition (from Step 1) with group definitions (from Step 2)
+        if group_definitions and group_definitions.lower() != "n/a":
+            metric_definition = f"{metric_definition}. Key: {group_definitions}"
         
         if not findings_list:
             return ["N/A (Value not found in text)"], metric_definition, "Extraction complete."
@@ -372,10 +379,9 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         st.error(f"Failed to parse LLM response: {e}")
-        st.write("Bad Output Content:", result.content) # Show the bad content
-        return None, "Failed to parse LLM response."
+        return None, metric_definition, "Failed to parse LLM response."
     except Exception as e:
-        return None, f"An error occurred during extraction: {e}"
+        return None, metric_definition, f"An error occurred during extraction: {e}"
 
 
 
