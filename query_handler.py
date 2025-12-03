@@ -319,13 +319,16 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         pass
     
     # --- Step 2: The "Scooper" Query (Modified) ---
+    # extractor_retriever = vector_store.as_retriever(
+    #     search_kwargs={'k': 20, 'filter': { # Increased k to capture more context/table rows
+    #         "$and": [
+    #             {'source': source_url},
+    #             {'section': {"$in": ["Results", "Conclusion", "Abstract"]}}
+    #         ]
+    #     }}
+    # )
     extractor_retriever = vector_store.as_retriever(
-        search_kwargs={'k': 15, 'filter': { # Increased k to capture more context/table rows
-            "$and": [
-                {'source': source_url},
-                {'section': {"$in": ["Results", "Conclusion", "Abstract"]}}
-            ]
-        }}
+        search_kwargs={'k': 20, 'filter': {'source': source_url}} 
     )
 
     extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
