@@ -506,6 +506,14 @@ def generate_outcome_table(outcome_of_interest):
     for i, source_url in enumerate(unique_sources):
         progress_bar.progress((i + 1) / len(unique_sources), text=f"Extracting from: {source_url}")
 
+        # Default values
+        findings_str = "N/A"
+        definition_str = "N/A"
+        placebo_data = "N/A"
+        treatment_arms = "N/A"
+        durations = "N/A"
+        raw_scoop = "N/A"
+                    
         # --- NEW: Filter out ClinicalTrials.gov links ---
         if "clinicaltrials.gov" in source_url:
             continue
@@ -513,32 +521,40 @@ def generate_outcome_table(outcome_of_interest):
         
         # --- PUBMED WORKFLOW ---
         # 1. Scoop the raw data
-        raw_data_block, metric_definition, status = extract_outcome_from_doc(source_url, outcome_of_interest)
+        raw_data_block, definition, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
-        # 2. Analyze the data (NEW)
-        if "N/A" not in raw_data_block:
-            analysis = analyze_outcome_data(raw_data_block, outcome_of_interest)
-        else:
-            analysis = {"placebo_data": "N/A", "treatment_arms": "N/A", "durations": "N/A"}
-            
-        # 3. Build the row
+        definition_str = definition
+            raw_scoop = raw_data_block # Store the raw text
+
+            # 2. Analyze the data (Step 2)
+            if "N/A" not in raw_data_block and raw_data_block.strip():
+                analysis = analyze_outcome_data(raw_data_block, outcome_of_interest)
+                placebo_data = analysis.get("placebo_data", "N/A")
+                treatment_arms = analysis.get("treatment_arms", "N/A")
+                durations = analysis.get("durations", "N/A")
+                
+                # For the main "Outcome" column, we can use the raw scoop or a summary. 
+                # For now, let's keep the raw scoop as the main finding, or leave it blank if you prefer the specific columns.
+                # Let's set findings_str to "See detailed columns" or similar if we have good analysis.
+                findings_str = "See extracted details" 
+            else:
+                findings_str = "Data not found"
+
         table_data.append({
             "Source Document": source_url,
-            "Metric Definition": metric_definition,
-            "Placebo Data": analysis.get("placebo_data", "N/A"),
-            "Treatment Arms": analysis.get("treatment_arms", "N/A"),
-            "Durations": analysis.get("durations", "N/A"),
-            "Raw Data Scoop": raw_data_block[:500] + "..." # Optional: Show a snippet of the raw text
+            "Metric Definition": definition_str,
+            f"Outcome: {outcome_of_interest}": findings_str,
+            "Placebo Data": placebo_data,
+            "Treatment Arms": treatment_arms,
+            "Durations": durations,
+            "Raw Data Scoop": raw_scoop
         })
-    
 
     progress_bar.empty()
-    
-    if not table_data:
-        return None, "Could not extract data from any documents."
+    if not table_data: return None, "Could not extract data."
 
     df = pd.DataFrame(table_data)
-    return df, unique_sources, "Table generation complete."
+    return df, "Table generation complete."
 
     # In query_handler.py, add this new function at the end of the file
 
