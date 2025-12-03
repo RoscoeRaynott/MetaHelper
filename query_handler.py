@@ -524,21 +524,21 @@ def generate_outcome_table(outcome_of_interest):
         raw_data_block, definition, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
         definition_str = definition
-            raw_scoop = raw_data_block # Store the raw text
+        raw_scoop = raw_data_block # Store the raw text
 
-            # 2. Analyze the data (Step 2)
-            if "N/A" not in raw_data_block and raw_data_block.strip():
-                analysis = analyze_outcome_data(raw_data_block, outcome_of_interest)
-                placebo_data = analysis.get("placebo_data", "N/A")
-                treatment_arms = analysis.get("treatment_arms", "N/A")
-                durations = analysis.get("durations", "N/A")
-                
-                # For the main "Outcome" column, we can use the raw scoop or a summary. 
-                # For now, let's keep the raw scoop as the main finding, or leave it blank if you prefer the specific columns.
-                # Let's set findings_str to "See detailed columns" or similar if we have good analysis.
-                findings_str = "See extracted details" 
-            else:
-                findings_str = "Data not found"
+        # 2. Analyze the data (Step 2)
+        if "N/A" not in raw_data_block and raw_data_block.strip():
+            analysis = analyze_outcome_data(raw_data_block, outcome_of_interest)
+            placebo_data = analysis.get("placebo_data", "N/A")
+            treatment_arms = analysis.get("treatment_arms", "N/A")
+            durations = analysis.get("durations", "N/A")
+            
+            # For the main "Outcome" column, we can use the raw scoop or a summary. 
+            # For now, let's keep the raw scoop as the main finding, or leave it blank if you prefer the specific columns.
+            # Let's set findings_str to "See detailed columns" or similar if we have good analysis.
+            findings_str = "See extracted details" 
+        else:
+            findings_str = "Data not found"
 
         table_data.append({
             "Source Document": source_url,
