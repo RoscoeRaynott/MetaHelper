@@ -511,17 +511,25 @@ def generate_outcome_table(outcome_of_interest):
             continue
         # --- END NEW ---
         
-        # --- NEW: Unpack 3 values instead of 2 ---
-        findings, definition, status = extract_outcome_from_doc(source_url, outcome_of_interest)
+        # --- PUBMED WORKFLOW ---
+        # 1. Scoop the raw data
+        raw_data_block, metric_definition, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
-        findings_str = " | ".join(findings) if findings else "N/A"
-        
+        # 2. Analyze the data (NEW)
+        if "N/A" not in raw_data_block:
+            analysis = analyze_outcome_data(raw_data_block, outcome_of_interest)
+        else:
+            analysis = {"placebo_data": "N/A", "treatment_arms": "N/A", "durations": "N/A"}
+            
+        # 3. Build the row
         table_data.append({
             "Source Document": source_url,
-            "Metric Definition": definition, # <--- Add the new column here
-            f"Outcome: {outcome_of_interest}": findings_str
+            "Metric Definition": metric_definition,
+            "Placebo Data": analysis.get("placebo_data", "N/A"),
+            "Treatment Arms": analysis.get("treatment_arms", "N/A"),
+            "Durations": analysis.get("durations", "N/A"),
+            "Raw Data Scoop": raw_data_block[:500] + "..." # Optional: Show a snippet of the raw text
         })
-
     
 
     progress_bar.empty()
@@ -705,3 +713,44 @@ Your response:"""
             return fallback_titles, "Used keyword matching fallback after error."
         else:
             return [], "No matches found even with keyword fallback."
+
+# In query_handler.py, add this function
+
+def analyze_outcome_data(raw_data_block, outcome_name):
+    """
+    Step 2: Analyzes the "scooped" raw data to extract specific structured fields.
+    """
+    llm = get_llm()
+    if not llm: return None
+
+    analysis_prompt = f"""
+    You are a medical data analyst. Analyze the following raw data regarding the outcome "{outcome_name}".
+    
+    RAW DATA:
+    {raw_data_block}
+    
+    INSTRUCTIONS:
+    1. **Placebo/Control Data:** Identify if there is a Placebo or Control group. If yes, extract the specific data values (mean, SD, n, etc.) for this group regarding "{outcome_name}". If no placebo group exists, say "No Placebo".
+    2. **Treatment Arms:** List the names of all active treatment groups mentioned.
+    3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
+
+    RESPONSE FORMAT:
+    Respond in VALID JSON with these keys:
+    {{
+        "placebo_data": "String describing the placebo values or 'No Placebo'",
+        "treatment_arms": "String listing the treatment group names",
+        "durations": "String listing the timepoints"
+    }}
+    """
+    
+    try:
+        result = llm.invoke(analysis_prompt)
+        cleaned_content = clean_json_output(result.content)
+        analysis_json = json.loads(cleaned_content)
+        return analysis_json
+    except Exception as e:
+        return {
+            "placebo_data": "Error analyzing data",
+            "treatment_arms": "Error",
+            "durations": "Error"
+        }
