@@ -349,29 +349,25 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     3. Do NOT summarize. Copy the specific details, values, confidence intervals, and p-values.
     4. Exclude data that is clearly about a different, unrelated outcome.
 
-    Respond in JSON with a single key: "data_block".
-    The value should be a single string containing all the extracted text and table rows combined.
+    RESPONSE FORMAT:
+    Just return the raw text block. Do not wrap it in JSON. Do not add "Here is the data". Just give me the data.
     """
 
     try:
         result = llm.invoke(extractor_prompt)
         
-        # Debug output to verify the "scoop"
-        st.warning(f"🔍 DEBUG SCOOP for {source_url}:")
-        st.text(result.content) 
+        # --- NEW PARSING: Direct Text ---
+        data_block = result.content.strip()
         
-        cleaned_content = clean_json_output(result.content)
-        answer_json = json.loads(cleaned_content)
-        data_block = answer_json.get('data_block', "")
+        # Debug output
+        st.warning(f"🔍 DEBUG SCOOP for {source_url}:")
+        st.text(data_block) 
         
         if not data_block:
             return "N/A (Value not found in text)", metric_definition, "Extraction complete."
             
         return data_block, metric_definition, "Extraction successful."
         
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        st.error(f"Failed to parse LLM response: {e}")
-        return None, metric_definition, "Failed to parse LLM response."
     except Exception as e:
         return None, metric_definition, f"An error occurred during extraction: {e}"
 
