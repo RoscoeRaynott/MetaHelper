@@ -272,19 +272,18 @@ def discover_and_normalize_metrics_from_library():
     
     return metrics_df, "Metric discovery and normalization complete."
 
-# In query_handler.py, add this new function at the end of the file
-
 def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     """
-    Performs a targeted, two-step RAG query to extract all values for a specific outcome.
-    Includes robust JSON cleaning and debugging.
+    Performs a targeted RAG query to "scoop" all raw data related to an outcome.
+    Step 1: Locator (Find name + definition).
+    Step 2: Scooper (Extract all relevant text/table rows).
     """
     vector_store = st.session_state.get('vector_store', None)
-    if not vector_store: return None, "Vector Store not found in session."
+    if not vector_store: return None, "Vector Store not found.", "Error"
     llm = get_llm()
-    if not llm: return None, "LLM not initialized."
+    if not llm: return None, "LLM not initialized.", "Error"
 
-    # --- Step 1: The "Locator" Query ---
+    # --- Step 1: The "Locator" Query (Unchanged) ---
     locator_retriever = vector_store.as_retriever(
         search_kwargs={'k': 5, 'filter': {
             "$and": [
@@ -296,39 +295,32 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     
     locator_context_chunks = locator_retriever.invoke(user_outcome_of_interest)
     if not locator_context_chunks:
-        return ["N/A (No relevant sections found)"], "N/A", "Extraction complete."
+        return "N/A (No relevant sections found)", "N/A", "Extraction complete."
         
     context_string_for_locator = "\n\n---\n\n".join([doc.page_content for doc in locator_context_chunks])
 
     locator_prompt = f"""
     Based ONLY on the context below, find the single, most relevant, full and exact name of the outcome measure related to "{user_outcome_of_interest}".
-    ALSO find the full definition or expansion of any acronyms in that name (e.g. if name is "FBG", definition is "Fasting Blood Glucose").
+    ALSO find the full definition or expansion of any acronyms in that name.
     Context: {context_string_for_locator}
     Respond in JSON with two keys: "exact_metric_name" and "metric_definition".
     If the definition is not found, set "metric_definition" to "N/A".
-    If the metric is not found, return null.
-    
     """
     
     exact_metric_name = user_outcome_of_interest
-    metric_definition = "N/A" # Default value
+    metric_definition = "N/A"
     try:
         result = llm.invoke(locator_prompt)
-        cleaned_content = clean_json_output(result.content) # Clean the output
+        cleaned_content = clean_json_output(result.content)
         answer_json = json.loads(cleaned_content)
-        found_name = answer_json.get("exact_metric_name")
-        if found_name:
-            exact_metric_name = found_name
-            # st.info(f"Locator found exact metric name: '{exact_metric_name}'") # Optional debug
-        # Capture the definition
+        if answer_json.get("exact_metric_name"): exact_metric_name = answer_json.get("exact_metric_name")
         metric_definition = answer_json.get("metric_definition", "N/A")
     except Exception:
-        # st.warning("Could not locate a more specific metric name, proceeding with user's term.")
         pass
     
-    # --- Step 2: The "Extractor" Query ---
+    # --- Step 2: The "Scooper" Query (Modified) ---
     extractor_retriever = vector_store.as_retriever(
-        search_kwargs={'k': 10, 'filter': {
+        search_kwargs={'k': 15, 'filter': { # Increased k to capture more context/table rows
             "$and": [
                 {'source': source_url},
                 {'section': {"$in": ["Results", "Conclusion", "Abstract"]}}
@@ -336,54 +328,163 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         }}
     )
 
-    # Combine user term and found term for better retrieval
     extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
     context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
     
     if not context_chunks_for_extractor:
-        return ["N/A (No data found for this metric)"], metric_definition, "Extraction complete."
+        return "N/A (No data found for this metric)", metric_definition, "Extraction complete."
 
     context_string_for_extractor = "\n\n---\n\n".join([doc.page_content for doc in context_chunks_for_extractor])
 
+    # --- NEW PROMPT: The "Scoop" ---
     extractor_prompt = f"""
-    Based ONLY on the context below, extract the outcome "{exact_metric_name}" with its GROUP/ARM labels.
+    You are a research assistant. Your goal is to extract all raw data related to the outcome: "{exact_metric_name}".
+    
+    Context:
+    {context_string_for_extractor}
 
-    Context: {context_string_for_extractor}
+    Instructions:
+    1. Identify every sentence or Markdown table row in the context that reports data for "{exact_metric_name}".
+    2. Keep the format exactly as it is in the text (preserve Markdown table syntax like | row | value |).
+    3. Do NOT summarize. Copy the specific details, values, confidence intervals, and p-values.
+    4. Exclude data that is clearly about a different, unrelated outcome.
 
-     1. Format each finding as "GroupName: value" (e.g., "Placebo (BT): 5.2 mg/dL").
-    2. Identify and define any acronyms used in the Group Names or Timepoints (e.g., "BT = Before Treatment").
-
-    Respond in JSON with two keys:
-    - "findings": a list of strings.
-    - "definitions": a single string containing definitions for any acronyms found in the groups. If none, return "".
-
-    Example: {{"findings": ["Control (BT): 100", "Control (AT): 90"], "definitions": "BT=Before Treatment, AT=After Treatment"}}
+    Respond in JSON with a single key: "data_block".
+    The value should be a single string containing all the extracted text and table rows combined.
     """
 
     try:
         result = llm.invoke(extractor_prompt)
-        # --- DEBUG INSERT ---
-        st.write(f"🔍 DEBUG for {source_url}:", result.content)
-        # --------------------
+        
+        # Debug output to verify the "scoop"
+        st.warning(f"🔍 DEBUG SCOOP for {source_url}:")
+        st.text(result.content) 
+        
         cleaned_content = clean_json_output(result.content)
         answer_json = json.loads(cleaned_content)
-        findings_list = answer_json.get('findings', [])
-        group_definitions = answer_json.get('definitions', "")
+        data_block = answer_json.get('data_block', "")
         
-        # Combine the outcome definition (from Step 1) with group definitions (from Step 2)
-        if group_definitions and group_definitions.lower() != "n/a":
-            metric_definition = f"{metric_definition}. Key: {group_definitions}"
-        
-        if not findings_list:
-            return ["N/A (Value not found in text)"], metric_definition, "Extraction complete."
+        if not data_block:
+            return "N/A (Value not found in text)", metric_definition, "Extraction complete."
             
-        return findings_list, metric_definition, "Extraction successful."
+        return data_block, metric_definition, "Extraction successful."
         
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         st.error(f"Failed to parse LLM response: {e}")
         return None, metric_definition, "Failed to parse LLM response."
     except Exception as e:
         return None, metric_definition, f"An error occurred during extraction: {e}"
+
+# def extract_outcome_from_doc(source_url, user_outcome_of_interest):
+#     """
+#     Performs a targeted, two-step RAG query to extract all values for a specific outcome.
+#     Includes robust JSON cleaning and debugging.
+#     """
+#     vector_store = st.session_state.get('vector_store', None)
+#     if not vector_store: return None, "Vector Store not found in session."
+#     llm = get_llm()
+#     if not llm: return None, "LLM not initialized."
+
+#     # --- Step 1: The "Locator" Query ---
+#     locator_retriever = vector_store.as_retriever(
+#         search_kwargs={'k': 5, 'filter': {
+#             "$and": [
+#                 {'source': source_url},
+#                 {'section': {"$in": ["Outcomes", "Results", "Abstract"]}}
+#             ]
+#         }}
+#     )
+    
+#     locator_context_chunks = locator_retriever.invoke(user_outcome_of_interest)
+#     if not locator_context_chunks:
+#         return ["N/A (No relevant sections found)"], "N/A", "Extraction complete."
+        
+#     context_string_for_locator = "\n\n---\n\n".join([doc.page_content for doc in locator_context_chunks])
+
+#     locator_prompt = f"""
+#     Based ONLY on the context below, find the single, most relevant, full and exact name of the outcome measure related to "{user_outcome_of_interest}".
+#     ALSO find the full definition or expansion of any acronyms in that name (e.g. if name is "FBG", definition is "Fasting Blood Glucose").
+#     Context: {context_string_for_locator}
+#     Respond in JSON with two keys: "exact_metric_name" and "metric_definition".
+#     If the definition is not found, set "metric_definition" to "N/A".
+#     If the metric is not found, return null.
+    
+#     """
+    
+#     exact_metric_name = user_outcome_of_interest
+#     metric_definition = "N/A" # Default value
+#     try:
+#         result = llm.invoke(locator_prompt)
+#         cleaned_content = clean_json_output(result.content) # Clean the output
+#         answer_json = json.loads(cleaned_content)
+#         found_name = answer_json.get("exact_metric_name")
+#         if found_name:
+#             exact_metric_name = found_name
+#             # st.info(f"Locator found exact metric name: '{exact_metric_name}'") # Optional debug
+#         # Capture the definition
+#         metric_definition = answer_json.get("metric_definition", "N/A")
+#     except Exception:
+#         # st.warning("Could not locate a more specific metric name, proceeding with user's term.")
+#         pass
+    
+#     # --- Step 2: The "Extractor" Query ---
+#     extractor_retriever = vector_store.as_retriever(
+#         search_kwargs={'k': 10, 'filter': {
+#             "$and": [
+#                 {'source': source_url},
+#                 {'section': {"$in": ["Results", "Conclusion", "Abstract"]}}
+#             ]
+#         }}
+#     )
+
+#     # Combine user term and found term for better retrieval
+#     extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
+#     context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
+    
+#     if not context_chunks_for_extractor:
+#         return ["N/A (No data found for this metric)"], metric_definition, "Extraction complete."
+
+#     context_string_for_extractor = "\n\n---\n\n".join([doc.page_content for doc in context_chunks_for_extractor])
+
+#     extractor_prompt = f"""
+#     Based ONLY on the context below, extract the outcome "{exact_metric_name}" with its GROUP/ARM labels.
+
+#     Context: {context_string_for_extractor}
+
+#      1. Format each finding as "GroupName: value" (e.g., "Placebo (BT): 5.2 mg/dL").
+#     2. Identify and define any acronyms used in the Group Names or Timepoints (e.g., "BT = Before Treatment").
+
+#     Respond in JSON with two keys:
+#     - "findings": a list of strings.
+#     - "definitions": a single string containing definitions for any acronyms found in the groups. If none, return "".
+
+#     Example: {{"findings": ["Control (BT): 100", "Control (AT): 90"], "definitions": "BT=Before Treatment, AT=After Treatment"}}
+#     """
+
+#     try:
+#         result = llm.invoke(extractor_prompt)
+#         # --- DEBUG INSERT ---
+#         st.write(f"🔍 DEBUG for {source_url}:", result.content)
+#         # --------------------
+#         cleaned_content = clean_json_output(result.content)
+#         answer_json = json.loads(cleaned_content)
+#         findings_list = answer_json.get('findings', [])
+#         group_definitions = answer_json.get('definitions', "")
+        
+#         # Combine the outcome definition (from Step 1) with group definitions (from Step 2)
+#         if group_definitions and group_definitions.lower() != "n/a":
+#             metric_definition = f"{metric_definition}. Key: {group_definitions}"
+        
+#         if not findings_list:
+#             return ["N/A (Value not found in text)"], metric_definition, "Extraction complete."
+            
+#         return findings_list, metric_definition, "Extraction successful."
+        
+#     except (json.JSONDecodeError, KeyError, TypeError) as e:
+#         st.error(f"Failed to parse LLM response: {e}")
+#         return None, metric_definition, "Failed to parse LLM response."
+#     except Exception as e:
+#         return None, metric_definition, f"An error occurred during extraction: {e}"
 
 
 
