@@ -327,7 +327,7 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         search_kwargs={'k': 50, 'filter': {'source': source_url}} 
     )
 
-    extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
+    extractor_query = f"{user_outcome_of_interest} {exact_metric_name} table data values"
     context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
     
     if not context_chunks_for_extractor:
