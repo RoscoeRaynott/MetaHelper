@@ -744,14 +744,14 @@ def analyze_outcome_data(raw_data_block, outcome_name):
     
     INSTRUCTIONS:
     1. **Placebo/Control Data:** Identify if there is a Placebo or Control group. If yes, extract the specific data values (mean, SD, n, etc.) for this group regarding "{outcome_name}". If no placebo group exists, say "No Placebo".
-    2. **Treatment Arms:** List the names of all active treatment groups mentioned.
+    2. **Treatment Arms:** List the names of all active treatment groups mentioned.For EACH group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
     3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
 
     RESPONSE FORMAT:
     Respond in VALID JSON with these keys:
     {{
         "placebo_data": "String describing the placebo values or 'No Placebo'",
-        "treatment_arms": "String listing the treatment group names",
+        "treatment_arms": "String listing the treatment group names AND their values (e.g. 'Drug A: 5.2, Drug B: 4.5')",
         "durations": "String listing the timepoints"
     }}
     """
