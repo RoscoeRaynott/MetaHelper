@@ -301,20 +301,16 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
 
     locator_prompt = f"""
     Based ONLY on the context below, find the single, most relevant, full and exact name of the outcome measure related to "{user_outcome_of_interest}".
-    ALSO find the full definition or expansion of any acronyms in that name.
     Context: {context_string_for_locator}
-    Respond in JSON with two keys: "exact_metric_name" and "metric_definition".
-    If the definition is not found, set "metric_definition" to "N/A".
+    Respond in JSON with one key "exact_metric_name". If not found, return null.
     """
     
     exact_metric_name = user_outcome_of_interest
-    metric_definition = "N/A"
     try:
         result = llm.invoke(locator_prompt)
         cleaned_content = clean_json_output(result.content)
         answer_json = json.loads(cleaned_content)
         if answer_json.get("exact_metric_name"): exact_metric_name = answer_json.get("exact_metric_name")
-        metric_definition = answer_json.get("metric_definition", "N/A")
     except Exception:
         pass
     
@@ -367,12 +363,12 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         st.text(data_block) 
         
         if not data_block:
-            return "N/A (Value not found in text)", metric_definition, "Extraction complete."
+            return "N/A (Value not found in text)", "Extraction complete."
             
-        return data_block, metric_definition, "Extraction successful."
+        return data_block,  "Extraction successful."
         
     except Exception as e:
-        return None, metric_definition, f"An error occurred during extraction: {e}"
+        return None,  f"An error occurred during extraction: {e}"
 
 # def extract_outcome_from_doc(source_url, user_outcome_of_interest):
 #     """
@@ -524,9 +520,8 @@ def generate_outcome_table(outcome_of_interest):
         
         # --- PUBMED WORKFLOW ---
         # 1. Scoop the raw data
-        raw_data_block, definition, status = extract_outcome_from_doc(source_url, outcome_of_interest)
+        raw_data_block, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
-        definition_str = definition
         raw_scoop = raw_data_block # Store the raw text
 
         # 2. Analyze the data (Step 2)
@@ -545,7 +540,6 @@ def generate_outcome_table(outcome_of_interest):
 
         table_data.append({
             "Source Document": source_url,
-            "Metric Definition": definition_str,
             f"Outcome: {outcome_of_interest}": findings_str,
             "Placebo Data": placebo_data,
             "Treatment Arms": treatment_arms,
