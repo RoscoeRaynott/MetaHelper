@@ -100,7 +100,35 @@ if 'links_for_rag' not in st.session_state or not st.session_state['links_for_ra
 else:
     links = st.session_state['links_for_rag']
     st.info(f"Found {len(links)} links prepared from the search page.")
-    
+
+    # --- NEW: Batch Processing Button ---
+    if st.button("🚀 Process & Add ALL Links to Library"):
+        progress_bar = st.progress(0, text="Starting batch processing...")
+        total_links = len(links)
+        success_count = 0
+        
+        for i, link in enumerate(links):
+            progress_bar.progress((i + 1) / total_links, text=f"Processing {i+1}/{total_links}: {link}")
+            
+            # 1. Process (Ingest & Chunk)
+            # We don't need to display the text here, just get the chunks
+            _, text_chunks = process_single_link(link)
+            
+            if text_chunks:
+                # 2. Add to Vector Store
+                vs, status = add_to_in_memory_vector_store(text_chunks, link)
+                if vs:
+                    success_count += 1
+                else:
+                    st.error(f"Failed to add {link}: {status}")
+            else:
+                st.error(f"Failed to process {link}")
+        
+        progress_bar.empty()
+        st.success(f"Batch complete! Successfully added {success_count}/{total_links} documents to the library.")
+        time.sleep(1) # Give user a moment to see the success message
+        st.rerun()
+    # --- END NEW ---
     selected_link = st.selectbox("Choose a link to process:", options=links)
 
     if st.button(f"Process Link"):
