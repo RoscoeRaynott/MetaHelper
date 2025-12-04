@@ -40,7 +40,7 @@ def get_llm():
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0, # Crucial for factual, non-creative extraction
-            max_tokens=100000,
+            max_tokens=4096,
             # model_kwargs={
             #     "response_format": {"type": "json_object"} # Instruct the model to output JSON
             # }
@@ -324,7 +324,7 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     #     }}
     # )
     extractor_retriever = vector_store.as_retriever(
-        search_kwargs={'k': 50, 'filter': {'source': source_url}} 
+        search_kwargs={'k': 40, 'filter': {'source': source_url}} 
     )
 
     extractor_query = f"{user_outcome_of_interest} {exact_metric_name} table data values"
