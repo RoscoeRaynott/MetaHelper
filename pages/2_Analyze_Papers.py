@@ -283,61 +283,62 @@ if vector_store:
         if 'summary_table_df' in st.session_state:
             df = st.session_state['summary_table_df']
             
-            # Define columns: Source(2), Definition(2), Placebo(2), Treatment(2), Duration(1), Scoop(1), Refresh(1)
-            # Total weights = 11
-            cols = st.columns([2, 2, 2, 2, 1, 1, 1])
+            # --- CHANGE 4: Update Columns (Remove one '2') ---
+            # Source(2), Placebo(2), Treatment(2), Duration(1), Scoop(1), Refresh(1)
+            cols = st.columns([2, 2, 2, 1, 1, 1])
             
             # Headers
             cols[0].markdown("**Source**")
-            cols[1].markdown("**Definition**")
-            cols[2].markdown("**Placebo Data**")
-            cols[3].markdown("**Treatments**")
-            cols[4].markdown("**Duration**")
-            cols[5].markdown("**Scoop**")
-            cols[6].markdown("**Refresh**")
+            # cols[1].markdown("**Definition**") <-- DELETE THIS
+            cols[1].markdown("**Placebo Data**") # Shifted index
+            cols[2].markdown("**Treatments**")    # Shifted index
+            cols[3].markdown("**Duration**")      # Shifted index
+            cols[4].markdown("**Scoop**")         # Shifted index
+            cols[5].markdown("**Refresh**")       # Shifted index
             
             st.divider()
             
             for idx, row in df.iterrows():
-                c = st.columns([2, 2, 2, 2, 1, 1, 1])
+                c = st.columns([2, 2, 2, 1, 1, 1]) # Match header columns
                 
                 # 1. Source Link
                 c[0].markdown(f"[Link]({row['Source Document']})")
                 
-                # 2. Definition
-                c[1].text(row.get('Metric Definition', 'N/A'))
+                # 2. Definition <-- DELETE THIS BLOCK
+                # c[1].text(row.get('Metric Definition', 'N/A'))
                 
-                # 3. Placebo Data
-                c[2].text(row.get('Placebo Data', 'N/A'))
+                # 3. Placebo Data (Shifted to index 1)
+                c[1].text(row.get('Placebo Data', 'N/A'))
                 
-                # 4. Treatment Arms
-                c[3].text(row.get('Treatment Arms', 'N/A'))
+                # 4. Treatment Arms (Shifted to index 2)
+                c[2].text(row.get('Treatment Arms', 'N/A'))
                 
-                # 5. Durations
-                c[4].text(row.get('Durations', 'N/A'))
+                # 5. Durations (Shifted to index 3)
+                c[3].text(row.get('Durations', 'N/A'))
                 
-                # 6. Raw Data Scoop (Expander)
-                with c[5]:
+                # 6. Raw Data Scoop (Shifted to index 4)
+                with c[4]:
                     with st.expander("View"):
                         st.write(row.get('Raw Data Scoop', 'N/A'))
                 
-                # 7. Refresh Button
-                with c[6]:
+                # 7. Refresh Button (Shifted to index 5)
+                with c[5]:
                     if st.button("🔄", key=f"refresh_{idx}"):
                         with st.spinner("Refreshing..."):
                             from query_handler import extract_outcome_from_doc, analyze_outcome_data
                             source_url = row['Source Document']
                             
-                            # Re-run the logic for this single row
                             if "clinicaltrials.gov" not in source_url:
-                                raw_block, new_def, _ = extract_outcome_from_doc(source_url, st.session_state['user_outcome'])
+                                # --- CHANGE 5: Unpack only 2 values ---
+                                raw_block, _ = extract_outcome_from_doc(source_url, st.session_state['user_outcome'])
+                                
                                 if "N/A" not in raw_block:
                                     analysis = analyze_outcome_data(raw_block, st.session_state['user_outcome'])
                                     st.session_state['summary_table_df'].at[idx, 'Placebo Data'] = analysis.get("placebo_data", "N/A")
                                     st.session_state['summary_table_df'].at[idx, 'Treatment Arms'] = analysis.get("treatment_arms", "N/A")
                                     st.session_state['summary_table_df'].at[idx, 'Durations'] = analysis.get("durations", "N/A")
                                     st.session_state['summary_table_df'].at[idx, 'Raw Data Scoop'] = raw_block
-                                    st.session_state['summary_table_df'].at[idx, 'Metric Definition'] = new_def
+                                    # Remove the definition update line
                             
                             st.rerun()
             
