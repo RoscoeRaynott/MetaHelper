@@ -742,10 +742,22 @@ def analyze_outcome_data(raw_data_block, outcome_name):
     RAW DATA:
     {raw_data_block}
     
+    # INSTRUCTIONS:
+    # 1. **Placebo/Control Data:** Identify if there is a Placebo or Control group. If yes, extract the specific data values (mean, SD, n, etc.) for this group regarding "{outcome_name}". If no placebo group exists, say "No Placebo".
+    # 2. **Treatment Arms:** List the names of all active treatment groups mentioned.For EACH group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
+    # 3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
     INSTRUCTIONS:
-    1. **Placebo/Control Data:** Identify if there is a Placebo or Control group. If yes, extract the specific data values (mean, SD, n, etc.) for this group regarding "{outcome_name}". If no placebo group exists, say "No Placebo".
-    2. **Treatment Arms:** List the names of all active treatment groups mentioned.For EACH group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
+    1. **Placebo/Control Data:** Identify the Placebo or Control group. 
+       - Look for standard terms: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care".
+       - **CRITICAL:** Look for acronyms in table headers like **"PLA", "PBO", "CON", "CTL"**. Check the surrounding text or table captions in the raw data to confirm if an acronym stands for Placebo.
+       - If found, extract the specific data values (mean, SD, n, etc.) for this group. If no placebo group exists, say "No Placebo".
+
+    2. **Treatment Arms:** Identify all **active** treatment groups. 
+       - **Exclude** any group identified as Placebo/Control in Step 1.
+       - For EACH active group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
+
     3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
+    
 
     RESPONSE FORMAT:
     Respond in VALID JSON with these keys:
