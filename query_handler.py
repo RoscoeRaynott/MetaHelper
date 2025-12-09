@@ -730,133 +730,90 @@ Your response:"""
 def analyze_outcome_data(raw_data_block, outcome_name):
     """
     Step 2: Analyzes the "scooped" raw data.
-    Uses a 2-Pass Strategy:
-    1. Identify Group Names (Classify Placebo vs Treatment).
-    2. Extract Data for those specific groups.
+    Uses a "Retry Loop" to ensure high-quality extraction.
     """
     llm = get_llm()
     if not llm: return None
 
-    # --- Pass 1: The Classifier (Identify Groups) ---
-    classification_prompt = f"""
-    Analyze the text below to identify the study groups.
-    
-    RAW DATA:
-    {raw_data_block}
+    best_result = {
+        "placebo_data": "N/A",
+        "treatment_arms": "N/A",
+        "durations": "N/A"
+    }
 
-    Task:
-    1. List all group names or acronyms found in table headers or text.
-    2. Identify which group is the Placebo/Control. 
-        - Look for: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care", or acronyms like "PLA", "PBO", "CON", "CTL".
-        - Check captions for definitions (e.g. "PLA = Placebo").
-        - **CRITICAL EXCLUSION:** Do NOT select aggregate columns like "Total", "Overall", "All Patients", or "Combined" as the Placebo.
-    3. Identify the Active Treatment groups.
+    # --- AUTOMATED RETRY LOOP (Max 3 attempts) ---
+    for attempt in range(3):
+        try:
+            # --- Pass 1: The Classifier (Identify Groups) ---
+            classification_prompt = f"""
+            Analyze the text below to identify the study groups.
+            
+            RAW DATA:
+            {raw_data_block}
 
-    Respond in VALID JSON:
-    {{
-        "placebo_name": "Exact string found in text for placebo (e.g. 'PLA' or 'Control Group'). If none, return 'None'",
-        "treatment_names": ["Exact string for Treatment A", "Exact string for Treatment B"]
-    }}
-    """
+            Task:
+            1. List all group names or acronyms found in table headers or text.
+            2. Identify which group is the Placebo/Control. 
+               - Look for: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care", or acronyms like "PLA", "PBO", "CON", "CTL".
+               - Check captions for definitions (e.g. "PLA = Placebo").
+               - **CRITICAL EXCLUSION:** Do NOT select aggregate columns like "Total", "Overall", "All Patients", or "Combined" as the Placebo.
+            3. Identify the Active Treatment groups.
 
-    placebo_name = "None"
-    treatment_names = []
+            Respond in VALID JSON:
+            {{
+                "placebo_name": "Exact string found in text for placebo. If none, return 'None'",
+                "treatment_names": ["Exact string for Treatment A", "Exact string for Treatment B"]
+            }}
+            """
+            
+            # Run Classifier
+            result = llm.invoke(classification_prompt)
+            cleaned = clean_json_output(result.content)
+            classification = json.loads(cleaned)
+            
+            placebo_name = classification.get("placebo_name", "None")
+            treatment_names = classification.get("treatment_names", [])
 
-    try:
-        # Run Classifier
-        result = llm.invoke(classification_prompt)
-        cleaned = clean_json_output(result.content)
-        classification = json.loads(cleaned)
-        
-        placebo_name = classification.get("placebo_name", "None")
-        treatment_names = classification.get("treatment_names", [])
-    except Exception:
-        # If classification fails, proceed with defaults (LLM will try its best in Step 2)
-        pass
+            # --- Pass 2: The Extractor (Get Values) ---
+            extraction_prompt = f"""
+            You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
 
-    # --- Pass 2: The Extractor (Get Values) ---
-    extraction_prompt = f"""
-    You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
+            RAW DATA:
+            {raw_data_block}
 
-    RAW DATA:
-    {raw_data_block}
+            Group Definitions:
+            - Placebo/Control Group Identifier: "{placebo_name}"
+            - Treatment Group Identifiers: {treatment_names}
 
-    Group Definitions:
-    - Placebo/Control Group Identifier: "{placebo_name}"
-    - Treatment Group Identifiers: {treatment_names}
+            INSTRUCTIONS:
+            1. **Placebo Data:** Extract values (mean, SD, n, %) specifically for the group identified as "{placebo_name}".
+            2. **Treatment Arms:** Extract values specifically for the groups identified as {treatment_names}. Format as "Group Name: Value".
+            3. **Durations:** List all follow-up timepoints mentioned.
 
-    INSTRUCTIONS:
-    1. **Placebo Data:** Extract values (mean, SD, n, %) specifically for the group identified as "{placebo_name}".
-    2. **Treatment Arms:** Extract values specifically for the groups identified as {treatment_names}. Format as "Group Name: Value".
-    3. **Durations:** List all follow-up timepoints mentioned.
+            RESPONSE FORMAT (JSON):
+            {{
+                "placebo_data": "String describing values for {placebo_name}",
+                "treatment_arms": "String listing values for {treatment_names}",
+                "durations": "String listing timepoints"
+            }}
+            """
 
-    RESPONSE FORMAT (JSON):
-    {{
-        "placebo_data": "String describing values for {placebo_name}",
-        "treatment_arms": "String listing values for {treatment_names}",
-        "durations": "String listing timepoints"
-    }}
-    """
+            result = llm.invoke(extraction_prompt)
+            cleaned_content = clean_json_output(result.content)
+            current_analysis = json.loads(cleaned_content)
+            
+            # --- QUALITY CHECK ---
+            # If we found actual Placebo data (not "No Placebo" or "N/A"), this is a good result.
+            # We trust it and return immediately.
+            p_data = current_analysis.get("placebo_data", "").lower()
+            if "no placebo" not in p_data and "n/a" not in p_data and "none" not in p_data:
+                return current_analysis
+            
+            # If we didn't find placebo data, save this result as a backup but try again
+            best_result = current_analysis
 
-    try:
-        result = llm.invoke(extraction_prompt)
-        cleaned_content = clean_json_output(result.content)
-        analysis_json = json.loads(cleaned_content)
-        return analysis_json
-    except Exception:
-        return {
-            "placebo_data": "Error analyzing data",
-            "treatment_arms": "Error",
-            "durations": "Error"
-        }
+        except Exception:
+            continue # If an error occurs, just try the next attempt
 
-# def analyze_outcome_data(raw_data_block, outcome_name):
-#     """
-#     Step 2: Analyzes the "scooped" raw data to extract specific structured fields.
-#     """
-#     llm = get_llm()
-#     if not llm: return None
-
-#     analysis_prompt = f"""
-#     You are a medical data analyst. Analyze the following raw data regarding the outcome "{outcome_name}".
-    
-#     RAW DATA:
-#     {raw_data_block}
-    
-#     # INSTRUCTIONS:
-#     # 1. **Placebo/Control Data:** Identify if there is a Placebo or Control group. If yes, extract the specific data values (mean, SD, n, etc.) for this group regarding "{outcome_name}". If no placebo group exists, say "No Placebo".
-#     # 2. **Treatment Arms:** List the names of all active treatment groups mentioned.For EACH group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
-#     # 3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
-#     INSTRUCTIONS:
-#     1. **Placebo/Control Data:** Identify the Placebo or Control group. 
-#        - Look for standard terms: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care".
-#        - **CRITICAL:** Look for acronyms in table headers like **"PLA", "PBO", "CON", "CTL"**. Check the surrounding text or table captions in the raw data to confirm if an acronym stands for Placebo.
-#        - If found, extract the specific data values (mean, SD, n, etc.) for this group. If no placebo group exists, say "No Placebo".
-
-#     2. **Treatment Arms:** Identify all **active** treatment groups. 
-#        - **Exclude** any group identified as Placebo/Control in Step 1.
-#        - For EACH active group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
-
-#     3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
-    
-
-#     RESPONSE FORMAT:
-#     Respond in VALID JSON with these keys:
-#     {{
-#         "placebo_data": "String describing the placebo values or 'No Placebo'",
-#         "treatment_arms": "String listing the treatment group names AND their values (e.g. 'Drug A: 5.2, Drug B: 4.5')",
-#         "durations": "String listing the timepoints"
-#     }}
-#     """
-    
-#     try:
-#         result = llm.invoke(analysis_prompt)
-#         cleaned_content = clean_json_output(result.content)
-#         analysis_json = json.loads(cleaned_content)
-#         return analysis_json
-#     except Exception as e:
-#         return {
-#             "placebo_data": "Error analyzing data",
-#             "treatment_arms": "Error",
-#             "durations": "Error"
-#         }
+    # If we tried 3 times and never got a "perfect" result, return the last valid one we found
+    return best_result
