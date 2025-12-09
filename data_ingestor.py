@@ -192,11 +192,11 @@ def get_ct_gov_table_titles_from_api(nct_id):
 
         all_titles = []
 
-        # 1. Baseline Characteristics
-        baseline_module = results_section.get('baselineCharacteristicsModule', {})
-        for measure in baseline_module.get('measures', []):
-            if measure.get('title'):
-                all_titles.append(f"[Baseline] {measure['title']}")
+        # # 1. Baseline Characteristics
+        # baseline_module = results_section.get('baselineCharacteristicsModule', {})
+        # for measure in baseline_module.get('measures', []):
+        #     if measure.get('title'):
+        #         all_titles.append(f"[Baseline] {measure['title']}")
 
         # 2. Outcome Measures
         outcome_module = results_section.get('outcomeMeasuresModule', {})
