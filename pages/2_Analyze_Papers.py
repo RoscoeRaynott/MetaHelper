@@ -505,3 +505,28 @@ if st.session_state.get('vector_store'):
             st.info("No ClinicalTrials.gov documents are in the library to test.")
 else:
     st.info("You must add documents to the Knowledge Library before you can test this feature.")
+
+# --- 6. Generate ClinicalTrials.gov Table ---
+st.markdown("---")
+st.header("6. Generate ClinicalTrials.gov Summary Table")
+
+if vector_store:
+    user_outcome = st.session_state.get('user_outcome_of_interest', '')
+    
+    if st.button("Generate CT.gov Table"):
+        with st.spinner("Querying API for all CT.gov links..."):
+            from query_handler import generate_ct_gov_table
+            
+            ct_df, status = generate_ct_gov_table(user_outcome)
+            
+            if ct_df is not None and not ct_df.empty:
+                st.success(status)
+                st.dataframe(
+                    ct_df,
+                    column_config={
+                        "Link": st.column_config.LinkColumn("Link")
+                    },
+                    hide_index=True
+                )
+            else:
+                st.warning(status)
