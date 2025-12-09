@@ -6,6 +6,27 @@ from langchain_openai import ChatOpenAI
 #from langchain.chains.retrieval_qa.base import RetrievalQA
 import pandas as pd
 
+def clean_json_output(text):
+    """
+    Robustly extracts JSON from LLM output by finding the first '{' and last '}'.
+    Handles Markdown blocks and conversational filler.
+    """
+    text = text.strip()
+    
+    # 1. Find the start of the JSON object
+    start_index = text.find('{')
+    if start_index == -1:
+        return text # No JSON object found, return original text (will likely fail parsing)
+        
+    # 2. Find the end of the JSON object
+    end_index = text.rfind('}')
+    if end_index == -1:
+        return text # Incomplete JSON
+        
+    # 3. Extract just the JSON part
+    # Add 1 to end_index to include the closing brace
+    return text[start_index : end_index + 1]
+    
 @st.cache_resource
 def get_llm():
     """Initializes the LLM for question answering, configured for OpenRouter."""
@@ -19,7 +40,7 @@ def get_llm():
             openai_api_key=st.secrets.get("OPENROUTER_API_KEY"),
             openai_api_base="https://openrouter.ai/api/v1",
             temperature=0.0, # Crucial for factual, non-creative extraction
-            max_tokens=100,
+            max_tokens=4096,
             # model_kwargs={
             #     "response_format": {"type": "json_object"} # Instruct the model to output JSON
             # }
@@ -251,24 +272,18 @@ def discover_and_normalize_metrics_from_library():
     
     return metrics_df, "Metric discovery and normalization complete."
 
-# In query_handler.py, add this new function at the end of the file
-
 def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     """
-    Performs a targeted, two-step RAG query to extract all values for a specific outcome.
-    Step 1: Locate the exact metric name.
-    Step 2: Extract the values for that exact name.
+    Performs a targeted RAG query to "scoop" all raw data related to an outcome.
+    Step 1: Locator (Find name + definition).
+    Step 2: Scooper (Extract all relevant text/table rows).
     """
     vector_store = st.session_state.get('vector_store', None)
-    if not vector_store:
-        return None, "Vector Store not found in session."
-
+    if not vector_store: return None, "Vector Store not found.", "Error"
     llm = get_llm()
-    if not llm:
-        return None, "LLM not initialized."
+    if not llm: return None, "LLM not initialized.", "Error"
 
-    # --- Step 1: The "Locator" Query ---
-    # Find the exact name of the outcome measure in the relevant sections.
+    # --- Step 1: The "Locator" Query (Unchanged) ---
     locator_retriever = vector_store.as_retriever(
         search_kwargs={'k': 5, 'filter': {
             "$and": [
@@ -280,7 +295,7 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     
     locator_context_chunks = locator_retriever.invoke(user_outcome_of_interest)
     if not locator_context_chunks:
-        return ["N/A (No relevant sections found)"], "Extraction complete."
+        return "N/A (No relevant sections found)", "N/A", "Extraction complete."
         
     context_string_for_locator = "\n\n---\n\n".join([doc.page_content for doc in locator_context_chunks])
 
@@ -290,59 +305,181 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     Respond in JSON with one key "exact_metric_name". If not found, return null.
     """
     
-    exact_metric_name = user_outcome_of_interest # Default to user's term
+    exact_metric_name = user_outcome_of_interest
     try:
         result = llm.invoke(locator_prompt)
-        answer_json = json.loads(result.content)
-        found_name = answer_json.get("exact_metric_name")
-        if found_name:
-            exact_metric_name = found_name
-            st.info(f"Locator found exact metric name: '{exact_metric_name}'")
+        cleaned_content = clean_json_output(result.content)
+        answer_json = json.loads(cleaned_content)
+        if answer_json.get("exact_metric_name"): exact_metric_name = answer_json.get("exact_metric_name")
     except Exception:
-        st.warning("Could not locate a more specific metric name, proceeding with user's term.")
+        pass
     
-    # --- Step 2: The "Extractor" Query ---
-    # Now, search for the value of the *exact_metric_name* we just found.
+    # --- Step 2: The "Scooper" Query (Modified) ---
+    # extractor_retriever = vector_store.as_retriever(
+    #     search_kwargs={'k': 20, 'filter': { # Increased k to capture more context/table rows
+    #         "$and": [
+    #             {'source': source_url},
+    #             {'section': {"$in": ["Results", "Conclusion", "Abstract"]}}
+    #         ]
+    #     }}
+    # )
     extractor_retriever = vector_store.as_retriever(
-        search_kwargs={'k': 10, 'filter': {
-            "$and": [
-                {'source': source_url},
-                {'section': {"$in": ["Results", "Conclusion", "Abstract"]}}
-            ]
-        }}
+        search_kwargs={'k': 40, 'filter': {'source': source_url}} 
     )
-    extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
-    st.info(f"Extractor Query: '{extractor_query}'") # Add info for clarity
+
+    extractor_query = f"{user_outcome_of_interest} {exact_metric_name} table data values"
     context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
-    # context_chunks_for_extractor = extractor_retriever.invoke(exact_metric_name)
+    
     if not context_chunks_for_extractor:
-        return ["N/A (No data found for this metric)"], "Extraction complete."
+        return "N/A (No data found for this metric)", metric_definition, "Extraction complete."
 
     context_string_for_extractor = "\n\n---\n\n".join([doc.page_content for doc in context_chunks_for_extractor])
 
+    # --- NEW PROMPT: The "Scoop" ---
     extractor_prompt = f"""
-    Based ONLY on the context below, find and list ALL reported numerical values for the specific outcome: "{exact_metric_name}".
-    Context: {context_string_for_extractor}
-    Extract the full value string, including numbers, units, and confidence intervals (e.g., "5.2 ± 0.8 kg", "10% reduction").
-    Respond in JSON with a key "findings", which is a list of strings. If no values are found, return an empty list.
+    You are a research assistant. Your goal is to extract all raw data related to the outcome: "{exact_metric_name}".
+    
+    Context:
+    {context_string_for_extractor}
+
+    Instructions:
+    1. Identify every sentence or Markdown table row in the context that reports data for "{exact_metric_name}".
+    2. Keep the format exactly as it is in the text (preserve Markdown table syntax like | row | value |).
+    3. Do NOT summarize. Copy the specific details, values, confidence intervals, and p-values.
+    4. Exclude data that is clearly about a different, unrelated outcome.
+
+    RESPONSE FORMAT:
+    Just return the raw text block. Do not wrap it in JSON. Do not add "Here is the data". Just give me the data.
     """
 
     try:
         result = llm.invoke(extractor_prompt)
-        answer_json = json.loads(result.content)
-        findings_list = answer_json.get('findings', [])
         
-        if not findings_list:
-            return ["N/A (Value not found in text)"], "Extraction complete."
+        # --- NEW PARSING: Direct Text ---
+        data_block = result.content.strip()
+        
+        # Debug output
+        st.warning(f"🔍 DEBUG SCOOP for {source_url}:")
+        st.text(data_block) 
+        
+        if not data_block:
+            return "N/A (Value not found in text)", "Extraction complete."
             
-        return findings_list, "Extraction successful."
+        return data_block,  "Extraction successful."
         
-    except (json.JSONDecodeError, KeyError, TypeError) as e:
-        st.error(f"Failed to parse LLM response during extraction: {e}")
-        return None, "Failed to parse LLM response."
     except Exception as e:
-        return None, f"An error occurred during extraction: {e}"
+        return None,  f"An error occurred during extraction: {e}"
 
+# def extract_outcome_from_doc(source_url, user_outcome_of_interest):
+#     """
+#     Performs a targeted, two-step RAG query to extract all values for a specific outcome.
+#     Includes robust JSON cleaning and debugging.
+#     """
+#     vector_store = st.session_state.get('vector_store', None)
+#     if not vector_store: return None, "Vector Store not found in session."
+#     llm = get_llm()
+#     if not llm: return None, "LLM not initialized."
+
+#     # --- Step 1: The "Locator" Query ---
+#     locator_retriever = vector_store.as_retriever(
+#         search_kwargs={'k': 5, 'filter': {
+#             "$and": [
+#                 {'source': source_url},
+#                 {'section': {"$in": ["Outcomes", "Results", "Abstract"]}}
+#             ]
+#         }}
+#     )
+    
+#     locator_context_chunks = locator_retriever.invoke(user_outcome_of_interest)
+#     if not locator_context_chunks:
+#         return ["N/A (No relevant sections found)"], "N/A", "Extraction complete."
+        
+#     context_string_for_locator = "\n\n---\n\n".join([doc.page_content for doc in locator_context_chunks])
+
+#     locator_prompt = f"""
+#     Based ONLY on the context below, find the single, most relevant, full and exact name of the outcome measure related to "{user_outcome_of_interest}".
+#     ALSO find the full definition or expansion of any acronyms in that name (e.g. if name is "FBG", definition is "Fasting Blood Glucose").
+#     Context: {context_string_for_locator}
+#     Respond in JSON with two keys: "exact_metric_name" and "metric_definition".
+#     If the definition is not found, set "metric_definition" to "N/A".
+#     If the metric is not found, return null.
+    
+#     """
+    
+#     exact_metric_name = user_outcome_of_interest
+#     metric_definition = "N/A" # Default value
+#     try:
+#         result = llm.invoke(locator_prompt)
+#         cleaned_content = clean_json_output(result.content) # Clean the output
+#         answer_json = json.loads(cleaned_content)
+#         found_name = answer_json.get("exact_metric_name")
+#         if found_name:
+#             exact_metric_name = found_name
+#             # st.info(f"Locator found exact metric name: '{exact_metric_name}'") # Optional debug
+#         # Capture the definition
+#         metric_definition = answer_json.get("metric_definition", "N/A")
+#     except Exception:
+#         # st.warning("Could not locate a more specific metric name, proceeding with user's term.")
+#         pass
+    
+#     # --- Step 2: The "Extractor" Query ---
+#     extractor_retriever = vector_store.as_retriever(
+#         search_kwargs={'k': 10, 'filter': {
+#             "$and": [
+#                 {'source': source_url},
+#                 {'section': {"$in": ["Results", "Conclusion", "Abstract"]}}
+#             ]
+#         }}
+#     )
+
+#     # Combine user term and found term for better retrieval
+#     extractor_query = f"{user_outcome_of_interest}: {exact_metric_name}"
+#     context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
+    
+#     if not context_chunks_for_extractor:
+#         return ["N/A (No data found for this metric)"], metric_definition, "Extraction complete."
+
+#     context_string_for_extractor = "\n\n---\n\n".join([doc.page_content for doc in context_chunks_for_extractor])
+
+#     extractor_prompt = f"""
+#     Based ONLY on the context below, extract the outcome "{exact_metric_name}" with its GROUP/ARM labels.
+
+#     Context: {context_string_for_extractor}
+
+#      1. Format each finding as "GroupName: value" (e.g., "Placebo (BT): 5.2 mg/dL").
+#     2. Identify and define any acronyms used in the Group Names or Timepoints (e.g., "BT = Before Treatment").
+
+#     Respond in JSON with two keys:
+#     - "findings": a list of strings.
+#     - "definitions": a single string containing definitions for any acronyms found in the groups. If none, return "".
+
+#     Example: {{"findings": ["Control (BT): 100", "Control (AT): 90"], "definitions": "BT=Before Treatment, AT=After Treatment"}}
+#     """
+
+#     try:
+#         result = llm.invoke(extractor_prompt)
+#         # --- DEBUG INSERT ---
+#         st.write(f"🔍 DEBUG for {source_url}:", result.content)
+#         # --------------------
+#         cleaned_content = clean_json_output(result.content)
+#         answer_json = json.loads(cleaned_content)
+#         findings_list = answer_json.get('findings', [])
+#         group_definitions = answer_json.get('definitions', "")
+        
+#         # Combine the outcome definition (from Step 1) with group definitions (from Step 2)
+#         if group_definitions and group_definitions.lower() != "n/a":
+#             metric_definition = f"{metric_definition}. Key: {group_definitions}"
+        
+#         if not findings_list:
+#             return ["N/A (Value not found in text)"], metric_definition, "Extraction complete."
+            
+#         return findings_list, metric_definition, "Extraction successful."
+        
+#     except (json.JSONDecodeError, KeyError, TypeError) as e:
+#         st.error(f"Failed to parse LLM response: {e}")
+#         return None, metric_definition, "Failed to parse LLM response."
+#     except Exception as e:
+#         return None, metric_definition, f"An error occurred during extraction: {e}"
 
 
 
@@ -367,20 +504,51 @@ def generate_outcome_table(outcome_of_interest):
 
     for i, source_url in enumerate(unique_sources):
         progress_bar.progress((i + 1) / len(unique_sources), text=f"Extracting from: {source_url}")
+
+        # Default values
+        findings_str = "N/A"
+        definition_str = "N/A"
+        placebo_data = "N/A"
+        treatment_arms = "N/A"
+        durations = "N/A"
+        raw_scoop = "N/A"
+                    
+        # --- NEW: Filter out ClinicalTrials.gov links ---
+        if "clinicaltrials.gov" in source_url:
+            continue
+        # --- END NEW ---
         
-        findings, status = extract_outcome_from_doc(source_url, outcome_of_interest)
+        # --- PUBMED WORKFLOW ---
+        # 1. Scoop the raw data
+        raw_data_block, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
-        findings_str = " | ".join(findings) if findings else "N/A"
-        
+        raw_scoop = raw_data_block # Store the raw text
+
+        # 2. Analyze the data (Step 2)
+        if "N/A" not in raw_data_block and raw_data_block.strip():
+            analysis = analyze_outcome_data(raw_data_block, outcome_of_interest)
+            placebo_data = analysis.get("placebo_data", "N/A")
+            treatment_arms = analysis.get("treatment_arms", "N/A")
+            durations = analysis.get("durations", "N/A")
+            
+            # For the main "Outcome" column, we can use the raw scoop or a summary. 
+            # For now, let's keep the raw scoop as the main finding, or leave it blank if you prefer the specific columns.
+            # Let's set findings_str to "See detailed columns" or similar if we have good analysis.
+            findings_str = "See extracted details" 
+        else:
+            findings_str = "Data not found"
+
         table_data.append({
             "Source Document": source_url,
-            f"Outcome: {outcome_of_interest}": findings_str
+            f"Outcome: {outcome_of_interest}": findings_str,
+            "Placebo Data": placebo_data,
+            "Treatment Arms": treatment_arms,
+            "Durations": durations,
+            "Raw Data Scoop": raw_scoop
         })
 
     progress_bar.empty()
-    
-    if not table_data:
-        return None, "Could not extract data from any documents."
+    if not table_data: return None, "Could not extract data."
 
     df = pd.DataFrame(table_data)
     return df, "Table generation complete."
@@ -558,3 +726,137 @@ Your response:"""
             return fallback_titles, "Used keyword matching fallback after error."
         else:
             return [], "No matches found even with keyword fallback."
+
+def analyze_outcome_data(raw_data_block, outcome_name):
+    """
+    Step 2: Analyzes the "scooped" raw data.
+    Uses a 2-Pass Strategy:
+    1. Identify Group Names (Classify Placebo vs Treatment).
+    2. Extract Data for those specific groups.
+    """
+    llm = get_llm()
+    if not llm: return None
+
+    # --- Pass 1: The Classifier (Identify Groups) ---
+    classification_prompt = f"""
+    Analyze the text below to identify the study groups.
+    
+    RAW DATA:
+    {raw_data_block}
+
+    Task:
+    1. List all group names or acronyms found in table headers or text.
+    2. Identify which group is the Placebo/Control. 
+        - Look for: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care", or acronyms like "PLA", "PBO", "CON", "CTL".
+        - Check captions for definitions (e.g. "PLA = Placebo").
+        - **CRITICAL EXCLUSION:** Do NOT select aggregate columns like "Total", "Overall", "All Patients", or "Combined" as the Placebo.
+    3. Identify the Active Treatment groups.
+
+    Respond in VALID JSON:
+    {{
+        "placebo_name": "Exact string found in text for placebo (e.g. 'PLA' or 'Control Group'). If none, return 'None'",
+        "treatment_names": ["Exact string for Treatment A", "Exact string for Treatment B"]
+    }}
+    """
+
+    placebo_name = "None"
+    treatment_names = []
+
+    try:
+        # Run Classifier
+        result = llm.invoke(classification_prompt)
+        cleaned = clean_json_output(result.content)
+        classification = json.loads(cleaned)
+        
+        placebo_name = classification.get("placebo_name", "None")
+        treatment_names = classification.get("treatment_names", [])
+    except Exception:
+        # If classification fails, proceed with defaults (LLM will try its best in Step 2)
+        pass
+
+    # --- Pass 2: The Extractor (Get Values) ---
+    extraction_prompt = f"""
+    You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
+
+    RAW DATA:
+    {raw_data_block}
+
+    Group Definitions:
+    - Placebo/Control Group Identifier: "{placebo_name}"
+    - Treatment Group Identifiers: {treatment_names}
+
+    INSTRUCTIONS:
+    1. **Placebo Data:** Extract values (mean, SD, n, %) specifically for the group identified as "{placebo_name}".
+    2. **Treatment Arms:** Extract values specifically for the groups identified as {treatment_names}. Format as "Group Name: Value".
+    3. **Durations:** List all follow-up timepoints mentioned.
+
+    RESPONSE FORMAT (JSON):
+    {{
+        "placebo_data": "String describing values for {placebo_name}",
+        "treatment_arms": "String listing values for {treatment_names}",
+        "durations": "String listing timepoints"
+    }}
+    """
+
+    try:
+        result = llm.invoke(extraction_prompt)
+        cleaned_content = clean_json_output(result.content)
+        analysis_json = json.loads(cleaned_content)
+        return analysis_json
+    except Exception:
+        return {
+            "placebo_data": "Error analyzing data",
+            "treatment_arms": "Error",
+            "durations": "Error"
+        }
+
+# def analyze_outcome_data(raw_data_block, outcome_name):
+#     """
+#     Step 2: Analyzes the "scooped" raw data to extract specific structured fields.
+#     """
+#     llm = get_llm()
+#     if not llm: return None
+
+#     analysis_prompt = f"""
+#     You are a medical data analyst. Analyze the following raw data regarding the outcome "{outcome_name}".
+    
+#     RAW DATA:
+#     {raw_data_block}
+    
+#     # INSTRUCTIONS:
+#     # 1. **Placebo/Control Data:** Identify if there is a Placebo or Control group. If yes, extract the specific data values (mean, SD, n, etc.) for this group regarding "{outcome_name}". If no placebo group exists, say "No Placebo".
+#     # 2. **Treatment Arms:** List the names of all active treatment groups mentioned.For EACH group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
+#     # 3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
+#     INSTRUCTIONS:
+#     1. **Placebo/Control Data:** Identify the Placebo or Control group. 
+#        - Look for standard terms: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care".
+#        - **CRITICAL:** Look for acronyms in table headers like **"PLA", "PBO", "CON", "CTL"**. Check the surrounding text or table captions in the raw data to confirm if an acronym stands for Placebo.
+#        - If found, extract the specific data values (mean, SD, n, etc.) for this group. If no placebo group exists, say "No Placebo".
+
+#     2. **Treatment Arms:** Identify all **active** treatment groups. 
+#        - **Exclude** any group identified as Placebo/Control in Step 1.
+#        - For EACH active group, extract the specific data values (mean, SD, n, etc.) regarding "{outcome_name}". Format as "Group Name: Value".
+
+#     3. **Durations:** List all follow-up timepoints mentioned for this data (e.g., "12 weeks", "Baseline", "Day 90"). If only one timepoint is implied (e.g. "post-intervention"), state that.
+    
+
+#     RESPONSE FORMAT:
+#     Respond in VALID JSON with these keys:
+#     {{
+#         "placebo_data": "String describing the placebo values or 'No Placebo'",
+#         "treatment_arms": "String listing the treatment group names AND their values (e.g. 'Drug A: 5.2, Drug B: 4.5')",
+#         "durations": "String listing the timepoints"
+#     }}
+#     """
+    
+#     try:
+#         result = llm.invoke(analysis_prompt)
+#         cleaned_content = clean_json_output(result.content)
+#         analysis_json = json.loads(cleaned_content)
+#         return analysis_json
+#     except Exception as e:
+#         return {
+#             "placebo_data": "Error analyzing data",
+#             "treatment_arms": "Error",
+#             "durations": "Error"
+#         }
