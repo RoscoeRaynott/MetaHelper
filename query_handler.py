@@ -817,16 +817,65 @@ def analyze_outcome_data(raw_data_block, outcome_name):
 
     # If we tried 3 times and never got a "perfect" result, return the last valid one we found
     return best_result
+# In query_handler.py
+
+# --- NEW HELPER FUNCTION ---
+def process_single_ct_gov_doc(nct_id, outcome_of_interest):
+    """
+    Runs the full 3-step API workflow for a single CT.gov ID.
+    Returns: (placebo_str, treatment_str, table_names_str)
+    """
+    from data_ingestor import get_ct_gov_table_titles_from_api, extract_data_for_selected_titles
+    
+    # 1. List Titles
+    all_titles, _ = get_ct_gov_table_titles_from_api(nct_id)
+    
+    if not all_titles:
+        return "N/A", "N/A", "No data tables found"
+
+    # 2. Locate Relevant (LLM Step - this is why Refresh is useful!)
+    relevant_titles, _ = find_relevant_table_titles(all_titles, outcome_of_interest)
+    
+    if not relevant_titles:
+        return "N/A", "N/A", "No relevant tables found"
+
+    # 3. Extract Data
+    extracted_data, _ = extract_data_for_selected_titles(nct_id, relevant_titles)
+    
+    if not extracted_data:
+        return "N/A", "N/A", "Extraction failed"
+
+    # 4. Parse into Columns
+    placebo_list = []
+    treatment_list = []
+    table_names = list(extracted_data.keys())
+    
+    for title, val_str in extracted_data.items():
+        groups = val_str.split(" | ")
+        for group_str in groups:
+            if ":" in group_str:
+                group_name, val = group_str.split(":", 1)
+                if any(k in group_name.lower() for k in ['placebo', 'control', 'sham', 'vehicle']):
+                    placebo_list.append(f"{group_name.strip()}: {val.strip()}")
+                else:
+                    treatment_list.append(f"{group_name.strip()}: {val.strip()}")
+
+    placebo_cell = " || ".join(placebo_list) if placebo_list else "N/A"
+    treatment_cell = " || ".join(treatment_list) if treatment_list else "N/A"
+    table_name_cell = " || ".join(table_names)
+
+    return placebo_cell, treatment_cell, table_name_cell
+# --- END NEW HELPER ---
+
+# --- UPDATED CONTROLLER ---
 def generate_ct_gov_table(outcome_of_interest):
     """
-    Generates a specific table for ClinicalTrials.gov links.
-    Parses extracted API data into Placebo vs Treatment columns.
+    Generates the table for ClinicalTrials.gov links.
     """
     vector_store = st.session_state.get('vector_store', None)
     if not vector_store: return None, "Vector Store not found."
 
     all_docs_metadata = vector_store.get(include=["metadatas"])
-    # Filter ONLY for CT.gov links
     ct_sources = sorted(list(set(
         meta['source'] for meta in all_docs_metadata['metadatas'] 
         if "clinicaltrials.gov" in meta['source']
@@ -840,55 +889,28 @@ def generate_ct_gov_table(outcome_of_interest):
     for i, source_url in enumerate(ct_sources):
         progress_bar.progress((i + 1) / len(ct_sources), text=f"Processing API: {source_url}")
         
-        placebo_list = []
-        treatment_list = []
-        
-        # --- 3-Step API Workflow ---
         import re
-        from data_ingestor import get_ct_gov_table_titles_from_api, extract_data_for_selected_titles
-        
         nct_match = re.search(r'NCT\d+', source_url)
         if nct_match:
             nct_id = nct_match.group(0)
+            # Call the helper
+            p_val, t_val, tab_name = process_single_ct_gov_doc(nct_id, outcome_of_interest)
             
-            # 1. List Titles
-            all_titles, _ = get_ct_gov_table_titles_from_api(nct_id)
-            
-            if all_titles:
-                # 2. Locate Relevant
-                relevant_titles, _ = find_relevant_table_titles(all_titles, outcome_of_interest)
-                
-                if relevant_titles:
-                    # 3. Extract Data
-                    extracted_data, _ = extract_data_for_selected_titles(nct_id, relevant_titles)
-                    
-                    if extracted_data:
-                        # --- PARSING LOGIC ---
-                        # extracted_data is like: {'[Outcome] Title': 'Placebo: 5 | Drug: 10'}
-                        for title, val_str in extracted_data.items():
-                            # Split the string back into groups
-                            groups = val_str.split(" | ")
-                            for group_str in groups:
-                                if ":" in group_str:
-                                    group_name, val = group_str.split(":", 1)
-                                    # Keyword matching for Placebo
-                                    if any(k in group_name.lower() for k in ['placebo', 'control', 'sham', 'vehicle']):
-                                        placebo_list.append(f"{group_name.strip()}: {val.strip()}")
-                                    else:
-                                        treatment_list.append(f"{group_name.strip()}: {val.strip()}")
-        
-        # Format for table
-        placebo_cell = " || ".join(placebo_list) if placebo_list else "N/A"
-        treatment_cell = " || ".join(treatment_list) if treatment_list else "N/A"
-
-        table_data.append({
-            "Link": source_url,
-            "Placebo/Control Value": placebo_cell,
-            "Treatment Value": treatment_cell
-        })
+            table_data.append({
+                "Link": source_url,
+                "Table Name": tab_name, # New Column
+                "Placebo/Control Value": p_val,
+                "Treatment Value": t_val
+            })
+        else:
+            table_data.append({
+                "Link": source_url,
+                "Table Name": "Error",
+                "Placebo/Control Value": "Invalid URL",
+                "Treatment Value": "Invalid URL"
+            })
 
     progress_bar.empty()
-    
     if not table_data: return None, "No data extracted."
     
     return pd.DataFrame(table_data), "CT.gov Table Generated."
