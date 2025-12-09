@@ -746,7 +746,10 @@ def analyze_outcome_data(raw_data_block, outcome_name):
 
     Task:
     1. List all group names or acronyms found in table headers or text.
-    2. Identify which group is the Placebo/Control. Look for "Placebo", "Control", "Sham", or acronyms like "PLA", "PBO", "CON", "CTL". Check captions for definitions (e.g. "PLA = Placebo").
+    2. Identify which group is the Placebo/Control. 
+        - Look for: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care", or acronyms like "PLA", "PBO", "CON", "CTL".
+        - Check captions for definitions (e.g. "PLA = Placebo").
+        - **CRITICAL EXCLUSION:** Do NOT select aggregate columns like "Total", "Overall", "All Patients", or "Combined" as the Placebo.
     3. Identify the Active Treatment groups.
 
     Respond in VALID JSON:
