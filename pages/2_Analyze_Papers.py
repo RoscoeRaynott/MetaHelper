@@ -347,7 +347,7 @@ if vector_store:
                 # 6. Raw Data Scoop (Shifted to index 4)
                 with c[4]:
                     with st.expander("View"):
-                        st.text_area("Raw Data", row.get('Raw Data Scoop', 'N/A'), height=200)
+                        st.text_area("Raw Data", row.get('Raw Data Scoop', 'N/A'), height=200, key=f"scoop_{idx}")
                 
                 # 7. Refresh Button (Shifted to index 5)
                 with c[5]:
