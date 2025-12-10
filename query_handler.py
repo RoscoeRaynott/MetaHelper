@@ -295,7 +295,7 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     
     locator_context_chunks = locator_retriever.invoke(user_outcome_of_interest)
     if not locator_context_chunks:
-        return "N/A (No relevant sections found)", "N/A", "Extraction complete."
+        return "N/A (No relevant sections found)", "Extraction complete."
         
     context_string_for_locator = "\n\n---\n\n".join([doc.page_content for doc in locator_context_chunks])
 
