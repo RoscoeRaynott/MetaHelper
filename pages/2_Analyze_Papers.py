@@ -298,7 +298,7 @@ if vector_store:
             
                 
             with st.spinner("Analyzing all documents..."):    
-            from query_handler import generate_outcome_table
+                from query_handler import generate_outcome_table
                 # Call the function
                 result = generate_outcome_table(user_outcome)
                 
