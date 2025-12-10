@@ -290,25 +290,24 @@ if vector_store:
         
         if st.button("Generate Summary Table"):
 
-            # Clear any old table data before generating new one
-            if 'summary_table_df' in st.session_state:
-                del st.session_state['summary_table_df']
-            if 'summary_table_sources' in st.session_state:
-                del st.session_state['summary_table_sources']
+            # # Clear any old table data before generating new one
+            # if 'summary_table_df' in st.session_state:
+            #     del st.session_state['summary_table_df']
+            # if 'summary_table_sources' in st.session_state:
+            #     del st.session_state['summary_table_sources']
+            
                 
             with st.spinner("Analyzing all documents..."):    
+                from query_handler import generate_outcome_table
+                # Call the function
+                result = generate_outcome_table(user_outcome)
                 
-            from query_handler import generate_outcome_table
-            
-            # Call the function
-            result = generate_outcome_table(user_outcome)
-            
-            # Handle return values safely
-            if isinstance(result, tuple):
-                extracted_df, status = result
-            else:
-                extracted_df = result
-                status = "Generated"
+                # Handle return values safely
+                if isinstance(result, tuple):
+                    extracted_df, status = result
+                else:
+                    extracted_df = result
+                    status = "Generated"
             
             st.success(status)
             if extracted_df is not None:
