@@ -790,7 +790,7 @@ def analyze_outcome_data(raw_data_block, outcome_name):
             treatment_names = classification.get("treatment_names", [])
 
             # --- Pass 2: The Extractor (Get Values) ---
-            extraction_prompt = f"""
+             extraction_prompt = f"""
             You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
 
             RAW DATA:
@@ -801,9 +801,15 @@ def analyze_outcome_data(raw_data_block, outcome_name):
             - Treatment Group Identifiers: {treatment_names}
 
             INSTRUCTIONS:
-            1. **Placebo Data:** Extract values (mean, SD, n, %) specifically for the group identified as "{placebo_name}".
-            2. **Treatment Arms:** Extract values specifically for the groups identified as {treatment_names}. Format as "Group Name: Value".
-            3. **Durations:** List all follow-up timepoints mentioned.
+            1. **Focus Strictly on the Outcome:** Look for the specific row or sentence that reports results for "{outcome_name}".
+            2. **Placebo Data:** Extract the value (mean, SD, n, %, CI) for the "{placebo_name}" group.
+            3. **Treatment Arms:** Extract values for the {treatment_names} groups. Format: "Group Name: Value".
+            4. **Durations:** List timepoints.
+
+            CRITICAL NEGATIVE CONSTRAINTS:
+            - **DO NOT** extract demographic data (Age, Sex, Weight, Height) unless "{outcome_name}" IS a demographic metric.
+            - **DO NOT** extract values from rows that are not "{outcome_name}".
+            - If the data is in a table, find the intersection of the Group Column and the Outcome Row.
 
             RESPONSE FORMAT (JSON):
             {{
@@ -811,7 +817,29 @@ def analyze_outcome_data(raw_data_block, outcome_name):
                 "treatment_arms": "String listing values for {treatment_names}",
                 "durations": "String listing timepoints"
             }}
-            """
+            """           
+            # extraction_prompt = f"""
+            # You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
+
+            # RAW DATA:
+            # {raw_data_block}
+
+            # Group Definitions:
+            # - Placebo/Control Group Identifier: "{placebo_name}"
+            # - Treatment Group Identifiers: {treatment_names}
+
+            # INSTRUCTIONS:
+            # 1. **Placebo Data:** Extract values (mean, SD, n, %) specifically for the group identified as "{placebo_name}".
+            # 2. **Treatment Arms:** Extract values specifically for the groups identified as {treatment_names}. Format as "Group Name: Value".
+            # 3. **Durations:** List all follow-up timepoints mentioned.
+
+            # RESPONSE FORMAT (JSON):
+            # {{
+            #     "placebo_data": "String describing values for {placebo_name}",
+            #     "treatment_arms": "String listing values for {treatment_names}",
+            #     "durations": "String listing timepoints"
+            # }}
+            # """
 
             result = llm.invoke(extraction_prompt)
             cleaned_content = clean_json_output(result.content)
