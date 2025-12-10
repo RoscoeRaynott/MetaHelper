@@ -533,9 +533,9 @@ if st.sidebar.button("Search"):
             st.write(f"Found {len(pubmed_results)} PubMed/PMC items:")
             for res in pubmed_results:
                 if res.get("is_rag_candidate"):
-                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Likely RAG-readable)")
+                    st.markdown(f"✅ **[{res['title']}]({res['link']})** - *{res['source_type']}*")
                 else:
-                    st.markdown(f"⚠️ **[{res['title']}]({res['link']})** - *{res['source_type']}* (Access for RAG needs verification)")
+                    st.markdown(f"⚠️ <span style='color:red'>**[{res['title']}]({res['link']})**</span> - *{res['source_type']}*", unsafe_allow_html=True)
                 if res.get("mesh_terms"):
                     st.caption(f"**MeSH Terms:** {' | '.join(res['mesh_terms'])}")
                 st.divider()
