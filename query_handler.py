@@ -535,7 +535,7 @@ def generate_outcome_table(outcome_of_interest):
         
         # --- PUBMED WORKFLOW ---
         # 1. Scoop the raw data
-        raw_data_block, status = extract_outcome_from_doc(source_url, outcome_of_interest)
+        raw_data_block, _, status = extract_outcome_from_doc(source_url, outcome_of_interest)
         
         raw_scoop = raw_data_block # Store the raw text
 
