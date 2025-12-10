@@ -882,40 +882,39 @@ def analyze_outcome_data(raw_data_block, outcome_name):
 
     # If we tried 3 times and never got a "perfect" result, return the last valid one we found
     return best_result
-# In query_handler.py
 
-# --- NEW HELPER FUNCTION ---
 def process_single_ct_gov_doc(nct_id, outcome_of_interest):
     """
     Runs the full 3-step API workflow for a single CT.gov ID.
-    Returns: (placebo_str, treatment_str, table_names_str)
+    Returns: (placebo_str, treatment_str, table_names_str, duration_str)
     """
     from data_ingestor import get_ct_gov_table_titles_from_api, extract_data_for_selected_titles
     
-    # 1. List Titles
     all_titles, _ = get_ct_gov_table_titles_from_api(nct_id)
-    
-    if not all_titles:
-        return "N/A", "N/A", "No data tables found"
+    if not all_titles: return "N/A", "N/A", "No data tables found", "N/A"
 
-    # 2. Locate Relevant (LLM Step - this is why Refresh is useful!)
     relevant_titles, _ = find_relevant_table_titles(all_titles, outcome_of_interest)
-    
-    if not relevant_titles:
-        return "N/A", "N/A", "No relevant tables found"
+    if not relevant_titles: return "N/A", "N/A", "No relevant tables found", "N/A"
 
-    # 3. Extract Data
     extracted_data, _ = extract_data_for_selected_titles(nct_id, relevant_titles)
-    
-    if not extracted_data:
-        return "N/A", "N/A", "Extraction failed"
+    if not extracted_data: return "N/A", "N/A", "Extraction failed", "N/A"
 
-    # 4. Parse into Columns
     placebo_list = []
     treatment_list = []
-    table_names = list(extracted_data.keys())
+    table_names = []
+    durations = []
     
-    for title, val_str in extracted_data.items():
+    # Iterate through the dictionary returned by data_ingestor
+    for title, data_dict in extracted_data.items():
+        table_names.append(title)
+        
+        # Extract Time Frame
+        t_frame = data_dict.get('time_frame', 'N/A')
+        if t_frame and t_frame != "N/A":
+            durations.append(t_frame)
+
+        # Extract Values
+        val_str = data_dict.get('value', '')
         groups = val_str.split(" | ")
         for group_str in groups:
             if ":" in group_str:
@@ -928,23 +927,18 @@ def process_single_ct_gov_doc(nct_id, outcome_of_interest):
     placebo_cell = " || ".join(placebo_list) if placebo_list else "N/A"
     treatment_cell = " || ".join(treatment_list) if treatment_list else "N/A"
     table_name_cell = " || ".join(table_names)
+    # Deduplicate durations and join
+    duration_cell = " || ".join(sorted(list(set(durations)))) if durations else "N/A"
 
-    return placebo_cell, treatment_cell, table_name_cell
-# --- END NEW HELPER ---
+    return placebo_cell, treatment_cell, table_name_cell, duration_cell
 
-# --- UPDATED CONTROLLER ---
 def generate_ct_gov_table(outcome_of_interest):
-    """
-    Generates the table for ClinicalTrials.gov links.
-    """
+    """Generates the table for ClinicalTrials.gov links."""
     vector_store = st.session_state.get('vector_store', None)
     if not vector_store: return None, "Vector Store not found."
 
     all_docs_metadata = vector_store.get(include=["metadatas"])
-    ct_sources = sorted(list(set(
-        meta['source'] for meta in all_docs_metadata['metadatas'] 
-        if "clinicaltrials.gov" in meta['source']
-    )))
+    ct_sources = sorted(list(set(meta['source'] for meta in all_docs_metadata['metadatas'] if "clinicaltrials.gov" in meta['source'])))
     
     if not ct_sources: return None, "No ClinicalTrials.gov documents found."
 
@@ -958,21 +952,23 @@ def generate_ct_gov_table(outcome_of_interest):
         nct_match = re.search(r'NCT\d+', source_url)
         if nct_match:
             nct_id = nct_match.group(0)
-            # Call the helper
-            p_val, t_val, tab_name = process_single_ct_gov_doc(nct_id, outcome_of_interest)
+            # Unpack 4 values now
+            p_val, t_val, tab_name, dur_val = process_single_ct_gov_doc(nct_id, outcome_of_interest)
             
             table_data.append({
                 "Link": source_url,
-                "Table Name": tab_name, # New Column
+                "Table Name": tab_name,
                 "Placebo/Control Value": p_val,
-                "Treatment Value": t_val
+                "Treatment Value": t_val,
+                "Duration": dur_val # New Column
             })
         else:
             table_data.append({
                 "Link": source_url,
                 "Table Name": "Error",
                 "Placebo/Control Value": "Invalid URL",
-                "Treatment Value": "Invalid URL"
+                "Treatment Value": "Invalid URL",
+                "Duration": "N/A"
             })
 
     progress_bar.empty()
