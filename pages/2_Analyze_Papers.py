@@ -3,6 +3,7 @@
 import streamlit as st
 #import os
 from data_ingestor import process_single_link
+from query_handler import generate_outcome_table
 # from vector_store_manager import create_vector_store, load_vector_store
 # from vector_store_manager import clear_vector_store
 from vector_store_manager import add_to_in_memory_vector_store, clear_in_memory_vector_store
@@ -296,7 +297,7 @@ if vector_store:
                 del st.session_state['summary_table_sources']
             
             with st.spinner("Analyzing all documents..."):
-                from query_handler import generate_outcome_table
+                
                 
                 # Call the function
                 result = generate_outcome_table(user_outcome)
