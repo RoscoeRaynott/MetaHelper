@@ -515,7 +515,7 @@ else:
 
 # --- 6. Generate ClinicalTrials.gov Summary Table ---
 st.markdown("---")
-st.header("8. Generate ClinicalTrials.gov Summary Table")
+st.header("6. Generate ClinicalTrials.gov Summary Table")
 
 if vector_store:
     user_outcome = st.session_state.get('user_outcome_of_interest', '')
@@ -528,34 +528,34 @@ if vector_store:
             
             if ct_df is not None and not ct_df.empty:
                 st.success(status)
-                # Save to session state so it persists
                 st.session_state['ct_gov_table_df'] = ct_df
             else:
                 st.warning(status)
 
-    # Display table with manual columns (Link, Table Name, Placebo, Treatment, Refresh)
     if 'ct_gov_table_df' in st.session_state:
         df = st.session_state['ct_gov_table_df']
         
-        # Columns: Link(2), Table Name(3), Placebo(2), Treatment(2), Refresh(1)
-        cols = st.columns([2, 3, 2, 2, 1])
+        # Updated Columns: Link(2), Table(3), Placebo(2), Treatment(2), Duration(2), Refresh(1)
+        cols = st.columns([2, 3, 2, 2, 2, 1])
         cols[0].markdown("**Link**")
         cols[1].markdown("**Table Name**")
         cols[2].markdown("**Placebo**")
         cols[3].markdown("**Treatment**")
-        cols[4].markdown("**Refresh**")
+        cols[4].markdown("**Duration**") # New Header
+        cols[5].markdown("**Refresh**")
         
         st.divider()
         
         for idx, row in df.iterrows():
-            c = st.columns([2, 3, 2, 2, 1])
+            c = st.columns([2, 3, 2, 2, 2, 1])
             
             c[0].markdown(f"[Link]({row['Link']})")
             c[1].text(row.get('Table Name', 'N/A'))
             c[2].text(row.get('Placebo/Control Value', 'N/A'))
             c[3].text(row.get('Treatment Value', 'N/A'))
+            c[4].text(row.get('Duration', 'N/A')) # New Data
             
-            with c[4]:
+            with c[5]:
                 if st.button("🔄", key=f"refresh_ct_{idx}"):
                     with st.spinner("Refreshing..."):
                         from query_handler import process_single_ct_gov_doc
@@ -566,13 +566,13 @@ if vector_store:
                         
                         if nct_match:
                             nct_id = nct_match.group(0)
-                            # Re-run the logic for this single row
-                            p_val, t_val, tab_name = process_single_ct_gov_doc(nct_id, user_outcome)
+                            # Unpack 4 values
+                            p_val, t_val, tab_name, dur_val = process_single_ct_gov_doc(nct_id, user_outcome)
                             
-                            # Update DataFrame in session state
                             st.session_state['ct_gov_table_df'].at[idx, 'Placebo/Control Value'] = p_val
                             st.session_state['ct_gov_table_df'].at[idx, 'Treatment Value'] = t_val
                             st.session_state['ct_gov_table_df'].at[idx, 'Table Name'] = tab_name
+                            st.session_state['ct_gov_table_df'].at[idx, 'Duration'] = dur_val
                             
                             st.rerun()
         st.divider()
