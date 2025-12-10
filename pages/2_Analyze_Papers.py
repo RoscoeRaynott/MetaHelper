@@ -295,6 +295,7 @@ if vector_store:
                 del st.session_state['summary_table_df']
             if 'summary_table_sources' in st.session_state:
                 del st.session_state['summary_table_sources']
+                
             with st.spinner("Analyzing all documents..."):
                 from query_handler import generate_outcome_table
                 
