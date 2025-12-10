@@ -767,12 +767,10 @@ def analyze_outcome_data(raw_data_block, outcome_name):
             {raw_data_block}
 
             Task:
-            1. List all group names or acronyms found in table headers or text.
-            2. Identify which group is the Placebo/Control. 
-               - Look for: "Placebo", "Control", "Sham", "Vehicle", "Standard of Care", or acronyms like "PLA", "PBO", "CON", "CTL".
-               - Check captions for definitions (e.g. "PLA = Placebo").
-               - **CRITICAL EXCLUSION:** Do NOT select aggregate columns like "Total", "Overall", "All Patients", or "Combined" as the Placebo.
-            3. Identify the Active Treatment groups.
+            1. List all group names found in headers.
+            2. Identify the Placebo/Control group (e.g., "Placebo", "PLA", "Control", "Sham").
+            3. **CRITICAL:** Do NOT select aggregate columns like "Total", "Overall", or "All Patients" as the Placebo.
+            4. Identify the Active Treatment groups.
 
             Respond in VALID JSON:
             {{
@@ -791,25 +789,21 @@ def analyze_outcome_data(raw_data_block, outcome_name):
 
             # --- Pass 2: The Extractor (Get Values) ---
             extraction_prompt = f"""
-            You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
+            Extract data for "{outcome_name}" based on the identified groups.
 
             RAW DATA:
             {raw_data_block}
 
-            Group Definitions:
-            - Placebo/Control Group Identifier: "{placebo_name}"
-            - Treatment Group Identifiers: {treatment_names}
+            Groups: Placebo="{placebo_name}", Treatments={treatment_names}
 
             INSTRUCTIONS:
-            1. **Focus Strictly on the Outcome:** Look for the specific row or sentence that reports results for "{outcome_name}".
-            2. **Placebo Data:** Extract the value (mean, SD, n, %, CI) for the "{placebo_name}" group.
-            3. **Treatment Arms:** Extract values for the {treatment_names} groups. Format: "Group Name: Value".
-            4. **Durations:** List timepoints.
-
-            CRITICAL NEGATIVE CONSTRAINTS:
-            - **DO NOT** extract demographic data (Age, Sex, Weight, Height) unless "{outcome_name}" IS a demographic metric.
-            - **DO NOT** extract values from rows that are not "{outcome_name}".
-            - If the data is in a table, find the intersection of the Group Column and the Outcome Row.
+            1. **Placebo Data:** Extract values (mean, SD, n, %) for "{placebo_name}".
+            2. **Treatment Arms:** Extract values for {treatment_names}. Format: "Group: Value".
+            3. **Durations:** List timepoints.
+            
+            **NEGATIVE CONSTRAINTS:**
+            - IGNORE rows for Age, Sex, Weight, or BMI unless they match "{outcome_name}".
+            - Extract ONLY data specific to the outcome "{outcome_name}".
 
             RESPONSE FORMAT (JSON):
             {{
@@ -817,7 +811,35 @@ def analyze_outcome_data(raw_data_block, outcome_name):
                 "treatment_arms": "String listing values for {treatment_names}",
                 "durations": "String listing timepoints"
             }}
-            """           
+            """
+            # extraction_prompt = f"""
+            # You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
+
+            # RAW DATA:
+            # {raw_data_block}
+
+            # Group Definitions:
+            # - Placebo/Control Group Identifier: "{placebo_name}"
+            # - Treatment Group Identifiers: {treatment_names}
+
+            # INSTRUCTIONS:
+            # 1. **Focus Strictly on the Outcome:** Look for the specific row or sentence that reports results for "{outcome_name}".
+            # 2. **Placebo Data:** Extract the value (mean, SD, n, %, CI) for the "{placebo_name}" group.
+            # 3. **Treatment Arms:** Extract values for the {treatment_names} groups. Format: "Group Name: Value".
+            # 4. **Durations:** List timepoints.
+
+            # CRITICAL NEGATIVE CONSTRAINTS:
+            # - **DO NOT** extract demographic data (Age, Sex, Weight, Height) unless "{outcome_name}" IS a demographic metric.
+            # - **DO NOT** extract values from rows that are not "{outcome_name}".
+            # - If the data is in a table, find the intersection of the Group Column and the Outcome Row.
+
+            # RESPONSE FORMAT (JSON):
+            # {{
+            #     "placebo_data": "String describing values for {placebo_name}",
+            #     "treatment_arms": "String listing values for {treatment_names}",
+            #     "durations": "String listing timepoints"
+            # }}
+            # """           
             # extraction_prompt = f"""
             # You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
 
