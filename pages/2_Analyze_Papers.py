@@ -279,7 +279,7 @@ else:
 
 # --- 5. Generate Final Outcome Table ---
 st.markdown("---")
-st.header("5. Generate Outcome Summary Table")
+st.header("5. Generate PUBMED Outcome Summary Table")
 
 if vector_store:
     user_outcome = st.session_state.get('user_outcome_of_interest', '')
