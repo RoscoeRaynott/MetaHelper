@@ -540,7 +540,7 @@ def generate_outcome_table(outcome_of_interest):
         raw_scoop = raw_data_block # Store the raw text
 
         # 2. Analyze the data (Step 2)
-        if "N/A" not in raw_data_block and raw_data_block.strip():
+        if raw_data_block and "N/A" not in raw_data_block and raw_data_block.strip():
             analysis = analyze_outcome_data(raw_data_block, outcome_of_interest)
             placebo_data = analysis.get("placebo_data", "N/A")
             treatment_arms = analysis.get("treatment_arms", "N/A")
