@@ -181,42 +181,42 @@ if st.session_state.get('processed_chunks'):
             else:
                 st.error(status)
 
-# --- 4. Analyze Library and Select Metrics for Extraction ---
-st.markdown("---")
-st.header("4. Analyze Library & Select Metrics for Table")
+# # --- 4. Analyze Library and Select Metrics for Extraction ---
+# st.markdown("---")
+# st.header("4. Analyze Library & Select Metrics for Table")
 
-# Initialize a session state variable to hold the discovered metrics
-if 'discovered_metrics_df' not in st.session_state:
-    st.session_state.discovered_metrics_df = None
+# # Initialize a session state variable to hold the discovered metrics
+# if 'discovered_metrics_df' not in st.session_state:
+#     st.session_state.discovered_metrics_df = None
 
-if vector_store:
-    # --- Part A: Full Library Analysis ---
-    st.subheader("Analyze Full Library to Find Common Metrics")
-    st.write("This will scan all documents in your library to find the most common metrics available for extraction. This process can take several minutes depending on the number of documents.")
+# if vector_store:
+#     # --- Part A: Full Library Analysis ---
+#     st.subheader("Analyze Full Library to Find Common Metrics")
+#     st.write("This will scan all documents in your library to find the most common metrics available for extraction. This process can take several minutes depending on the number of documents.")
     
-    if st.button("Analyze Library & Find Common Metrics"):
-        with st.spinner("Scanning all documents to discover and normalize metrics..."):
-            # Import and call our new controller function
-            from query_handler import discover_and_normalize_metrics_from_library
+#     if st.button("Analyze Library & Find Common Metrics"):
+#         with st.spinner("Scanning all documents to discover and normalize metrics..."):
+#             # Import and call our new controller function
+#             from query_handler import discover_and_normalize_metrics_from_library
             
-            metrics_df, status = discover_and_normalize_metrics_from_library()
+#             metrics_df, status = discover_and_normalize_metrics_from_library()
             
-            if metrics_df is not None and not metrics_df.empty:
-                st.session_state.discovered_metrics_df = metrics_df
-                st.success(status)
-            else:
-                st.session_state.discovered_metrics_df = None
-                st.error(status)
-        st.rerun() # Rerun to display the dataframe below immediately
+#             if metrics_df is not None and not metrics_df.empty:
+#                 st.session_state.discovered_metrics_df = metrics_df
+#                 st.success(status)
+#             else:
+#                 st.session_state.discovered_metrics_df = None
+#                 st.error(status)
+#         st.rerun() # Rerun to display the dataframe below immediately
 
-    # --- Part B: Display results of full analysis ---
-    if st.session_state.discovered_metrics_df is not None:
-        st.subheader("Discovered Common Metrics")
-        st.write("The following metrics were found across the documents in your library, sorted by frequency.")
-        st.dataframe(st.session_state.discovered_metrics_df)
+#     # --- Part B: Display results of full analysis ---
+#     if st.session_state.discovered_metrics_df is not None:
+#         st.subheader("Discovered Common Metrics")
+#         st.write("The following metrics were found across the documents in your library, sorted by frequency.")
+#         st.dataframe(st.session_state.discovered_metrics_df)
 
-else:
-    st.info("You must add documents to the Knowledge Library before you can analyze it.")
+# else:
+#     st.info("You must add documents to the Knowledge Library before you can analyze it.")
 
 # # --- 5. Generate Final Outcome Table ---
 # st.markdown("---")
@@ -277,9 +277,9 @@ else:
 # else:
 #     st.info("You must add documents to the Knowledge Library before you can generate a table.")
 
-# --- 5. Generate Final Outcome Table ---
+# --- 4. Generate Final Outcome Table ---
 st.markdown("---")
-st.header("5. Generate PUBMED Outcome Summary Table")
+st.header("4. Generate PUBMED Outcome Summary Table")
 
 if vector_store:
     user_outcome = st.session_state.get('user_outcome_of_interest', '')
@@ -382,9 +382,9 @@ if vector_store:
 else:
     st.info("You must add documents to the Knowledge Library before you can generate a table.")
 
-# --- 7. Test CT.gov Table Title Lister ---
+# --- 5. Test CT.gov Table Title Lister ---
 st.markdown("---")
-st.header("6. Test ClinicalTrials.gov Table Title Lister")
+st.header("5. Test ClinicalTrials.gov Table Title Lister")
 
 # Use st.session_state.get to be safe
 vector_store_exists = st.session_state.get('vector_store') is not None
@@ -436,9 +436,9 @@ else:
 # In pages/2_Analyze_Papers.py
 # ADD THIS ENTIRE BLOCK TO THE END OF THE FILE
 
-# --- 8. Test Title Locator (LLM Filter) ---
+# --- 6. Test Title Locator (LLM Filter) ---
 st.markdown("---")
-st.header("7. Test Title Locator (LLM Filter)")
+st.header("6. Test Title Locator (LLM Filter)")
 
 if st.session_state.get('vector_store'):
     user_outcome = st.session_state.get('user_outcome_of_interest', '')
@@ -513,9 +513,9 @@ if st.session_state.get('vector_store'):
 else:
     st.info("You must add documents to the Knowledge Library before you can test this feature.")
 
-# --- 6. Generate ClinicalTrials.gov Summary Table ---
+# --- 7. Generate ClinicalTrials.gov Summary Table ---
 st.markdown("---")
-st.header("6. Generate ClinicalTrials.gov Summary Table")
+st.header("7. Generate ClinicalTrials.gov Summary Table")
 
 if vector_store:
     user_outcome = st.session_state.get('user_outcome_of_interest', '')
