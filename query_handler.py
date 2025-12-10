@@ -790,7 +790,7 @@ def analyze_outcome_data(raw_data_block, outcome_name):
             treatment_names = classification.get("treatment_names", [])
 
             # --- Pass 2: The Extractor (Get Values) ---
-             extraction_prompt = f"""
+            extraction_prompt = f"""
             You are a medical data analyst. Extract data for "{outcome_name}" based on the identified groups.
 
             RAW DATA:
