@@ -377,7 +377,7 @@ else:
 
 # --- 7. Test CT.gov Table Title Lister ---
 st.markdown("---")
-st.header("7. Test ClinicalTrials.gov Table Title Lister")
+st.header("6. Test ClinicalTrials.gov Table Title Lister")
 
 # Use st.session_state.get to be safe
 vector_store_exists = st.session_state.get('vector_store') is not None
@@ -431,7 +431,7 @@ else:
 
 # --- 8. Test Title Locator (LLM Filter) ---
 st.markdown("---")
-st.header("8. Test Title Locator (LLM Filter)")
+st.header("7. Test Title Locator (LLM Filter)")
 
 if st.session_state.get('vector_store'):
     user_outcome = st.session_state.get('user_outcome_of_interest', '')
@@ -508,7 +508,7 @@ else:
 
 # --- 6. Generate ClinicalTrials.gov Summary Table ---
 st.markdown("---")
-st.header("6. Generate ClinicalTrials.gov Summary Table")
+st.header("8. Generate ClinicalTrials.gov Summary Table")
 
 if vector_store:
     user_outcome = st.session_state.get('user_outcome_of_interest', '')
