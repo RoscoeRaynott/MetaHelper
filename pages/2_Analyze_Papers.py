@@ -290,15 +290,15 @@ if vector_store:
         
         if st.button("Generate Summary Table"):
 
-            # # Clear any old table data before generating new one
-            # if 'summary_table_df' in st.session_state:
-            #     del st.session_state['summary_table_df']
-            # if 'summary_table_sources' in st.session_state:
-            #     del st.session_state['summary_table_sources']
+            # Clear any old table data before generating new one
+            if 'summary_table_df' in st.session_state:
+                del st.session_state['summary_table_df']
+            if 'summary_table_sources' in st.session_state:
+                del st.session_state['summary_table_sources']
             
                 
             with st.spinner("Analyzing all documents..."):    
-                from query_handler import generate_outcome_table
+            from query_handler import generate_outcome_table
                 # Call the function
                 result = generate_outcome_table(user_outcome)
                 
