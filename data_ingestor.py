@@ -230,7 +230,8 @@ def get_ct_gov_table_titles_from_api(nct_id):
 
 def extract_data_for_selected_titles(nct_id, selected_titles):
     """
-    Fetches API data and extracts values for the specific titles identified by the LLM.
+    Fetches API data and extracts values AND time frames.
+    Returns a dict: {title: {'value': "...", 'time_frame': "..."}}
     """
     api_url = f"https://clinicaltrials.gov/api/v2/studies/{nct_id}"
     try:
@@ -250,13 +251,14 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
             tag = tag + "]"
             
             findings = []
+            time_frame = "N/A" # Default
 
             # --- CASE 1: BASELINE CHARACTERISTICS ---
             if tag == "[Baseline]":
+                time_frame = "Baseline"
                 module = results.get('baselineCharacteristicsModule', {})
                 groups = module.get('groups', [])
                 group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
-                
                 measure = next((m for m in module.get('measures', []) if m.get('title') == clean_title), None)
                 
                 if measure:
@@ -266,7 +268,6 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
                                 gid = meas.get('groupId')
                                 val = meas.get('value', 'N/A')
                                 if meas.get('spread'): val += f" ({meas['spread']})"
-                                
                                 group_name = group_map.get(gid, gid)
                                 findings.append(f"{group_name}: {val}")
 
@@ -276,25 +277,27 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
                 measure = next((m for m in module.get('outcomeMeasures', []) if m.get('title') == clean_title), None)
                 
                 if measure:
+                    # --- NEW: Extract Time Frame ---
+                    time_frame = measure.get('timeFrame', 'N/A')
+                    # -------------------------------
                     groups = measure.get('groups', [])
                     group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
-
                     for cls in measure.get('classes', []):
                         for cat in cls.get('categories', []):
                             for meas in cat.get('measurements', []):
                                 gid = meas.get('groupId')
                                 val = meas.get('value', 'N/A')
-                                if meas.get('spread'): 
-                                    val += f" ({meas['spread']})"
-                                elif meas.get('lowerLimit') and meas.get('upperLimit'):
-                                    val += f" ({meas['lowerLimit']} to {meas['upperLimit']})"
-                                
+                                if meas.get('spread'): val += f" ({meas['spread']})"
+                                elif meas.get('lowerLimit') and meas.get('upperLimit'): val += f" ({meas['lowerLimit']} to {meas['upperLimit']})"
                                 group_name = group_map.get(gid, gid)
                                 findings.append(f"{group_name}: {val}")
 
             # --- CASE 3: ADVERSE EVENTS ---
             elif tag.startswith("[Adverse"):
                 module = results.get('adverseEventsModule', {})
+                # --- NEW: Extract Time Frame ---
+                time_frame = module.get('timeFrame', 'N/A')
+                # -------------------------------
                 groups = module.get('eventGroups', [])
                 group_map = {g.get('id'): g.get('title', g.get('id')) for g in groups}
 
@@ -306,13 +309,11 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
                         if count is not None:
                             val = f"{count}/{at_risk}" if at_risk else f"{count}"
                             findings.append(f"{group_map.get(gid, gid)}: {val}")
-                
                 else:
                     event_list = module.get('seriousEvents', []) + module.get('otherEvents', [])
-                    target_event = next((e for e in event_list if e.get('term') == clean_title), None)
-                    
-                    if target_event:
-                        for stat in target_event.get('stats', []):
+                    event = next((e for e in event_list if e.get('term') == clean_title), None)
+                    if event:
+                        for stat in event.get('stats', []):
                             gid = stat.get('groupId')
                             count = stat.get('numAffected')
                             at_risk = stat.get('numAtRisk')
@@ -321,10 +322,9 @@ def extract_data_for_selected_titles(nct_id, selected_titles):
                                 group_name = group_map.get(gid, gid)
                                 findings.append(f"{group_name}: {val}")
 
-            if findings:
-                extracted_results[full_title] = " | ".join(findings)
-            else:
-                extracted_results[full_title] = "Data not found"
+            # Store both value and time_frame
+            value_str = " | ".join(findings) if findings else "Data not found"
+            extracted_results[full_title] = {"value": value_str, "time_frame": time_frame}
 
         return extracted_results, "Extraction complete."
 
