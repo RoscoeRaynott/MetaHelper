@@ -326,9 +326,24 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
     extractor_retriever = vector_store.as_retriever(
         search_kwargs={'k': 40, 'filter': {'source': source_url}} 
     )
+    
+    # extractor_query = f"{user_outcome_of_interest} {exact_metric_name} table data values"
+    # context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
 
-    extractor_query = f"{user_outcome_of_interest} {exact_metric_name} table data values"
-    context_chunks_for_extractor = extractor_retriever.invoke(extractor_query)
+    # --- CHANGE: Ensemble Retrieval (Merged Scoop) ---
+    # 1. Search using the User's Input (The "Anchor")
+    chunks_original = extractor_retriever.invoke(user_outcome_of_interest)
+    
+    # 2. Search using the LLM's Found Name (The "Specific")
+    chunks_specific = []
+    if exact_metric_name and exact_metric_name.lower() != user_outcome_of_interest.lower():
+        chunks_specific = extractor_retriever.invoke(exact_metric_name)
+    
+    # 3. Merge and Deduplicate based on text content
+    # Using a dict preserves order while removing duplicates
+    combined_chunks_map = {doc.page_content: doc for doc in chunks_original + chunks_specific}
+    context_chunks_for_extractor = list(combined_chunks_map.values())
+    # -------------------------------------------------
     
     if not context_chunks_for_extractor:
         return "N/A (No data found for this metric)", metric_definition, "Extraction complete."
