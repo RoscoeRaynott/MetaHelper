@@ -373,9 +373,9 @@ def extract_outcome_from_doc(source_url, user_outcome_of_interest):
         # --- NEW PARSING: Direct Text ---
         data_block = result.content.strip()
         
-        # Debug output
-        st.warning(f"🔍 DEBUG SCOOP for {source_url}:")
-        st.text(data_block) 
+        # # Debug output
+        # st.warning(f"🔍 DEBUG SCOOP for {source_url}:")
+        # st.text(data_block) 
         
         if not data_block:
             return "N/A (Value not found in text)", "Extraction complete."
