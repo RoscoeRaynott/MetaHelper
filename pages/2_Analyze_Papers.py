@@ -298,17 +298,17 @@ if vector_store:
                 
             with st.spinner("Analyzing all documents..."):    
                 
-                from query_handler import generate_outcome_table
-                
-                # Call the function
-                result = generate_outcome_table(user_outcome)
-                
-                # Handle return values safely
-                if isinstance(result, tuple):
-                    extracted_df, status = result
-                else:
-                    extracted_df = result
-                    status = "Generated"
+            from query_handler import generate_outcome_table
+            
+            # Call the function
+            result = generate_outcome_table(user_outcome)
+            
+            # Handle return values safely
+            if isinstance(result, tuple):
+                extracted_df, status = result
+            else:
+                extracted_df = result
+                status = "Generated"
             
             st.success(status)
             if extracted_df is not None:
